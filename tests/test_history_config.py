@@ -28,7 +28,7 @@ class SettingsTests(unittest.TestCase):
             (root / "settings.json").write_text(
                 json.dumps({"microphone_threshold": 999}), encoding="utf-8"
             )
-            self.assertEqual(Settings.load(root).microphone_threshold, 0.014)
+            self.assertEqual(Settings.load(root).microphone_threshold, 0.008)
 
 
 class HistoryTests(unittest.TestCase):

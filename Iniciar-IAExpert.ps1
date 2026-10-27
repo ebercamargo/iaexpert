@@ -62,9 +62,9 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Nao foi possivel consultar os modelos do Ollama." -ForegroundColor Red
     exit 1
 }
-if (-not ($availableModels | Select-String -Pattern "^\s*qwen3\.5:4b\s")) {
-    Write-Host "Baixando o modelo local qwen3.5:4b. O arquivo ocupa varios GB..." -ForegroundColor Cyan
-    & ollama pull "qwen3.5:4b"
+if (-not ($availableModels | Select-String -Pattern "^\s*qwen3\.5:2b\s")) {
+    Write-Host "Baixando o modelo local qwen3.5:2b. O arquivo ocupa varios GB..." -ForegroundColor Cyan
+    & ollama pull "qwen3.5:2b"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Nao foi possivel baixar o modelo de IA." -ForegroundColor Red
         exit $LASTEXITCODE

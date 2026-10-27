@@ -28,8 +28,9 @@ VOICE_BASE_URL = (
 
 
 class Microphone:
-    def __init__(self, threshold: float = 0.014) -> None:
+    def __init__(self, threshold: float = 0.008, device: int | None = None) -> None:
         self.threshold = threshold
+        self.device = device
 
     def record(self, stop: Event, wait_seconds: float | None = 15.0) -> np.ndarray | None:
         """Detecta a fala, inclui um pré-roll e encerra após silêncio.
@@ -50,6 +51,7 @@ class Microphone:
             channels=1,
             dtype="float32",
             blocksize=BLOCK_SIZE,
+            device=self.device,
         ) as stream:
             while not stop.is_set():
                 block, _ = stream.read(BLOCK_SIZE)
@@ -72,7 +74,7 @@ class Microphone:
                     if loudness >= self.threshold:
                         last_loud = now
                     # Falas curtas demais costumam ser ruído do ambiente.
-                    if now - last_loud > 1.0:
+                    if now - last_loud > 0.72:
                         if now - speech_at >= 0.35:
                             break
                         speech_started = False
@@ -105,7 +107,7 @@ class SpeechToText:
             audio,
             language="pt",
             beam_size=1,
-            vad_filter=True,
+            vad_filter=False,
             condition_on_previous_text=False,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()

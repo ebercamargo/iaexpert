@@ -17,12 +17,13 @@ def data_directory() -> Path:
 
 @dataclass
 class Settings:
-    model: str = "qwen3.5:4b"
+    model: str = "qwen3.5:2b"
     ollama_url: str = "http://127.0.0.1:11434"
     whisper_model: str = "base"
-    auto_continue: bool = False
+    auto_continue: bool = True
     speak_answers: bool = True
-    microphone_threshold: float = 0.014
+    microphone_threshold: float = 0.008
+    microphone_device: int | None = None
 
     @classmethod
     def load(cls, directory: Path | None = None) -> "Settings":
@@ -47,6 +48,10 @@ class Settings:
                 if not 0.001 <= value <= 0.2:
                     raise ValueError("limiar inválido")
                 data["microphone_threshold"] = value
+            if "microphone_device" in data:
+                device = data["microphone_device"]
+                if device is not None and (not isinstance(device, int) or device < 0):
+                    raise ValueError("microphone_device inválido")
             return cls(**data)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return cls()
