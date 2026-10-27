@@ -1,72 +1,51 @@
-# IAExpert 🎙️
+# IAExpert — assistente de voz local
 
-Assistente de voz **open source para Windows**, em português do Brasil, com execução local. Você fala, ele transcreve, responde com inteligência artificial e fala de volta. O modo contínuo retoma a escuta depois de cada resposta.
+O IAExpert é um assistente conversacional público para Windows: você fala em português, a IA responde falando. A interface é **apenas um rosto na tela**: não há chat, caixas de digitação, botões ou bordas. Um pequeno indicador de atividade mostra quando está ouvindo, pensando ou falando.
 
-> **Versão inicial (MVP):** este assistente conversa, mas ainda não executa comandos do Windows nem pesquisa na internet. A imagem de referência é apenas conceitual.
+## Instalar ou atualizar (Windows 10/11)
 
-## Tecnologias
+Pré-requisitos: microfone, alto-falantes, [Python 3.11 x64](https://www.python.org/downloads/windows/) e [Ollama](https://ollama.com/download/windows).
 
-| Componente | Tecnologia | Papel |
-| --- | --- | --- |
-| Interface | Python 3.11, PySide6 / Qt 6 | Aplicativo desktop |
-| IA | Ollama, Qwen 3.5 4B | Respostas conversacionais em português |
-| Reconhecimento | Faster-Whisper, modelo base, CPU int8 | Voz para texto |
-| Síntese | Piper, voz pt_BR-faber-medium | Texto para voz brasileira |
-| Microfone/alto-falante | sounddevice / PortAudio | Entrada e saída de áudio |
-| Conversas | JSON local | Histórico entre sessões |
+Primeiro uso: baixe ou clone este repositório e execute **IAExpert.cmd**. O inicializador instala as dependências em ambiente virtual e baixa automaticamente o modelo de IA **qwen3.5:2b** (mais leve que o 4B anterior).
 
-Não requer chave de API paga nem GPU. Processamento de fala e da conversa fica no computador; **internet é necessária para instalar dependências e baixar os modelos pela primeira vez**. A qualidade/velocidade depende do hardware.
-
-## Como executar no Windows
-
-Pré-requisitos:
-
-1. Windows 10 ou 11 de 64 bits, microfone e saída de áudio.
-2. [Python 3.11 (64 bits)](https://www.python.org/downloads/windows/) com o launcher Python (comando py).
-3. [Ollama para Windows](https://ollama.com/download/windows), instalado e aberto.
-4. Internet durante a primeira instalação.
-
-Clone o repositório, ou baixe o ZIP do GitHub e extraia. Na pasta do projeto, dê **dois cliques em IAExpert.cmd**.
-
-O inicializador cria o ambiente virtual, instala bibliotecas e baixa o modelo qwen3.5:4b caso necessário. Na primeira fala, o Faster-Whisper baixa seu modelo de reconhecimento e o Piper baixa uma voz em português brasileiro.
+Atualizar uma instalação já clonada:
 
 ~~~powershell
-git clone https://github.com/ebercamargo/iaexpert.git
-cd iaexpert
+git pull origin main
 .\IAExpert.cmd
 ~~~
 
-### Conversando
+Na primeira pergunta falada, os modelos de reconhecimento de voz e síntese são baixados; após os downloads, a conversa e a voz são processadas localmente.
 
-- Clique em **Iniciar conversa**, fale normalmente e faça uma pausa. O assistente transcreve sua pergunta e responde.
-- Marque **Conversa contínua (mãos livres)** para retomar a escuta automaticamente após cada resposta. Clique em **Interromper** para parar.
-- Também pode digitar na caixa de texto. Desmarque **Responder falando** para ler respostas sem áudio.
-- Para melhorar a velocidade em CPUs, execute antes **ollama pull qwen3.5:2b** e selecione esse modelo na interface. Para hardware mais robusto, use qwen3.5:9b.
-- **Limpar histórico** apaga os registros da conversa no computador.
+## Conversar sem interface de chat
 
-Use fones para o microfone não capturar a voz sintetizada. No modo normal, ele aguarda até 15 segundos pelo início de uma fala; no contínuo, continua aguardando até ser interrompido.
+- **Ao abrir**: a escuta inicia automaticamente; basta falar e fazer uma pausa.
+- **Clique esquerdo no rosto** ou **espaço**: pausar ou retomar escuta.
+- **Clique direito no rosto**: trocar microfone, trocar modelo, ativar/desativar voz, limpar histórico ou sair.
+- **Ctrl+M**: escolher microfone.
+- **F11**: alternar maximizado/tela cheia, ambos sem moldura.
+- **Esc**: encerrar IAExpert.
 
-### Configuração e privacidade
+Por padrão, a escuta contínua fica ativa; depois de falar, a IA volta a ouvir. Use fones para evitar que a própria voz sintetizada seja capturada pelo microfone.
 
-As configurações, histórico e arquivos de voz ficam em **%LOCALAPPDATA%\IAExpert**. Os modelos do Ollama e o cache do Whisper usam as pastas padrão dessas ferramentas.
+## Redução da latência e pronúncia
 
-Para ambientes ruidosos, altere microphone_threshold (padrão 0.014) em settings.json. Para transcrição mais precisa, altere whisper_model de base para small. A alteração exige reiniciar a aplicação.
+- O modelo padrão foi reduzido de **Qwen 3.5 4B para 2B** para favorecer máquinas sem GPU.
+- As respostas são limitadas a poucas frases e a até 144 tokens por resposta, com contexto reduzido.
+- **Síntese progressiva:** a primeira frase começa a ser sintetizada enquanto o modelo ainda está gerando o restante. Não é necessário aguardar a resposta inteira.
+- Os caracteres de Markdown (asteriscos, marcações de negrito e tópicos) são removidos antes da leitura.
+- O silêncio para encerrar a pergunta foi reduzido a 0,72 segundo.
+- O texto da conversa não aparece na tela; o histórico continua salvo localmente para manter o contexto.
 
-O Ollama é acessado em http://127.0.0.1:11434 por padrão. Mudar ollama_url para um endereço remoto poderá enviar mensagens a esse servidor. Os JSON locais não têm criptografia; evite digitar segredos ou dados confidenciais.
+A velocidade final depende do processador, da saída de áudio e dos modelos instalados. O primeiro uso pode demorar pelo download dos modelos. O avatar é uma ilustração com efeitos de atividade e respiração discretos, **ainda não possui sincronização labial real**.
 
-## Solução de problemas
+## Diagnóstico
 
-| Sintoma | Solução |
-| --- | --- |
-| Ollama não encontrado | Instale o Ollama, abra-o e reinicie IAExpert.cmd |
-| Modelo de IA ausente | Execute no terminal: ollama pull qwen3.5:4b |
-| Microfone silencioso | Verifique o microfone padrão e as permissões em Configurações → Privacidade → Microfone |
-| Não reproduz áudio | Verifique o dispositivo de saída e a opção Responder falando |
-| Detecta sons do ambiente | Ajuste microphone_threshold no settings.json |
-| Primeiro uso lento | A primeira utilização baixa Whisper e Piper; na CPU a inferência demanda mais tempo |
-| Respostas lentas | Tente o modelo qwen3.5:2b |
+Se ele não ouvir: clique com o botão direito no rosto, selecione **Escolher microfone** e confira se o Windows permite o acesso a ele. Se não falar: abra o menu e confira **Ativar voz**, além da saída de áudio padrão no Windows.
 
-## Para contribuir
+Ollama executa localmente por padrão em http://127.0.0.1:11434. O usuário pode selecionar um modelo mais pesado no menu após instalar com comando como **ollama pull qwen3.5:4b**. Se mudar o servidor para um Ollama remoto, a conversa poderá ser enviada àquele servidor.
+
+## Desenvolvimento
 
 ~~~powershell
 py -3.11 -m venv .venv
@@ -75,8 +54,6 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m iaexpert
 ~~~
 
-Veja [CONTRIBUTING.md](CONTRIBUTING.md).
+Veja [CONTRIBUTING.md](CONTRIBUTING.md). Código do repositório sob licença [Apache 2.0](LICENSE); dependências têm suas próprias licenças, incluindo o Piper TTS (GPL-3.0-or-later). Verificar as condições antes da redistribuição em binário. Sem API paga obrigatória.
 
-**Evoluções possíveis:** hotword opcional, troca de dispositivos de som, indicador de volume, pesquisa na web com consentimento, ferramentas do computador com confirmação explícita e executável instalável.
-
-**Licenças de terceiros:** o código deste repositório usa [Apache 2.0](LICENSE). A dependência Piper TTS (versões atuais) possui licença **GPL-3.0-or-later**, e o modelo de voz pt_BR-faber-medium pertence ao catálogo [piper-voices](https://huggingface.co/rhasspy/piper-voices). Antes de empacotar ou redistribuir um executável com dependências integradas, revisar obrigações de licenciamento e atribuição.
+Ainda não realiza comandos do computador ou buscas na internet automaticamente.

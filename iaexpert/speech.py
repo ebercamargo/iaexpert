@@ -31,8 +31,9 @@ class SentenceBuffer:
         self.buffer += token
         ready: list[str] = []
         while True:
-            match = re.search(r"(?<=[.!?])\s+", self.buffer)
-            if match and match.end() >= 28:
+            match = next((item for item in re.finditer(r"(?<=[.!?])\s+", self.buffer)
+                          if item.end() >= 16), None)
+            if match:
                 ready.append(self.buffer[:match.start() + 1])
                 self.buffer = self.buffer[match.end():]
                 continue

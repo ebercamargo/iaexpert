@@ -7,8 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import sounddevice as sd
-from PySide6.QtCore import QPointF, Qt, QTimer, QRectF
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QRadialGradient, QLinearGradient, QPen, QAction
+from PySide6.QtCore import QPointF, Qt, QTimer, QRectF, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QRadialGradient, QPen
 from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget
 
 from .config import Settings
@@ -18,6 +18,13 @@ from .worker import AssistantWorker
 
 class AvatarCanvas(QWidget):
     """O rosto é o único elemento visual; controles por clique e menu de contexto."""
+
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -123,13 +130,9 @@ class IAExpertWindow(QMainWindow):
         )
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._menu)
-        self.canvas.mouseReleaseEvent = self._face_clicked
+        self.canvas.clicked.connect(self._toggle_listening)
         self.showMaximized()
         QTimer.singleShot(600, self._start)
-
-    def _face_clicked(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            self._toggle_listening()
 
     def _start(self) -> None:
         if self.worker is not None or self.pending_close:
