@@ -289,8 +289,7 @@ class IAExpertWindow(QMainWindow):
         bubble.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         color = "#183c56" if role == "user" else "#19263b"
         bubble.setStyleSheet(
-            f"QFrame {{ background: {color}; border: 1px solid #344761; "
-            "border-radius: 13px; }}"
+            f"QFrame {{ background: {color}; border: 1px solid #344761; border-radius: 13px; }}"
             "QLabel { background: transparent; border: none; }"
         )
         box = QVBoxLayout(bubble)

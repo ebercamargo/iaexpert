@@ -57,8 +57,12 @@ if ($requirementsHash -ne $oldHash) {
     Set-Content -Path $marker -Value $requirementsHash
 }
 
-& ollama show "qwen3.5:4b" *> $null
+$availableModels = & ollama list
 if ($LASTEXITCODE -ne 0) {
+    Write-Host "Nao foi possivel consultar os modelos do Ollama." -ForegroundColor Red
+    exit 1
+}
+if (-not ($availableModels | Select-String -Pattern "^\s*qwen3\.5:4b\s")) {
     Write-Host "Baixando o modelo local qwen3.5:4b. O arquivo ocupa varios GB..." -ForegroundColor Cyan
     & ollama pull "qwen3.5:4b"
     if ($LASTEXITCODE -ne 0) {

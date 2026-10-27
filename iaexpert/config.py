@@ -31,6 +31,8 @@ class Settings:
             return cls()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return cls()
             allowed = set(cls.__dataclass_fields__)
             data = {k: v for k, v in raw.items() if k in allowed}
             if not isinstance(data.get("model", "qwen3.5:4b"), str):
