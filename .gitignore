@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.venv*/
+dist/
+build/
+*.egg-info/
+.env
+models/
+voices/
+*.onnx
+*.onnx.json
+*.wav
+*.part
+conversation.json
+settings.json
