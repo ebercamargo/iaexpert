@@ -79,4 +79,4 @@ Veja [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Evoluções possíveis:** hotword opcional, troca de dispositivos de som, indicador de volume, pesquisa na web com consentimento, ferramentas do computador com confirmação explícita e executável instalável.
 
-Licença: [Apache 2.0](LICENSE).
+**Licenças de terceiros:** o código deste repositório usa [Apache 2.0](LICENSE). A dependência Piper TTS (versões atuais) possui licença **GPL-3.0-or-later**, e o modelo de voz pt_BR-faber-medium pertence ao catálogo [piper-voices](https://huggingface.co/rhasspy/piper-voices). Antes de empacotar ou redistribuir um executável com dependências integradas, revisar obrigações de licenciamento e atribuição.
