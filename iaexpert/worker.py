@@ -90,7 +90,6 @@ class AssistantWorker(QThread):
                         tts.speak(text, self.stop_event)
                     except Exception as exc:
                         errors.append(exc)
-                        self.stop_event.set()
                         return
 
             speaker = Thread(target=playback, name="IAExpert-TTS", daemon=True)
