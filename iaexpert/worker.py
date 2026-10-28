@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from queue import Queue
 from threading import Event, Thread
+import time
 
 import sounddevice as sd
 from PySide6.QtCore import QThread, Signal
 
-from .audio import Microphone, SpeechToText, VoiceOutput
+from .audio import Microphone, SpeechToText
+from .voice import choose_voice
+from .performance import log_turn
 from .config import Settings
 from .history import ConversationHistory
 from .ollama_client import Cancelled, OllamaClient
@@ -38,7 +41,7 @@ class AssistantWorker(QThread):
     def run(self) -> None:
         try:
             stt = SpeechToText(self.settings)
-            tts = VoiceOutput()
+            tts = choose_voice(self.settings)
             client = OllamaClient(self.settings)
             microphone = Microphone(
                 self.settings.microphone_threshold,
@@ -53,7 +56,9 @@ class AssistantWorker(QThread):
                     continue
 
                 self.state_changed.emit("Reconhecendo a voz...")
+                stt_started = time.monotonic()
                 text = stt.transcribe(samples)
+                stt_ms = (time.monotonic()-stt_started)*1000
                 if self.stop_event.is_set():
                     break
                 if not text:
@@ -61,7 +66,7 @@ class AssistantWorker(QThread):
                     continue
 
                 self.question_ready.emit(text)
-                self._respond(text, client, tts)
+                self._respond(text, client, tts, stt_ms)
                 if not self.settings.auto_continue:
                     break
         except Cancelled:
@@ -70,11 +75,13 @@ class AssistantWorker(QThread):
             if not self.stop_event.is_set():
                 self.failed.emit(f"{type(exc).__name__}: {exc}")
 
-    def _respond(self, question: str, client: OllamaClient, tts: VoiceOutput) -> None:
+    def _respond(self, question: str, client: OllamaClient, tts, stt_ms: float = 0) -> None:
         if self.stop_event.is_set():
             raise Cancelled()
 
         self.state_changed.emit("Pensando...")
+        requested = time.monotonic()
+        times = {"first_token": None, "first_audio": None}
         buffer = SentenceBuffer()
         chunks: Queue[str | None] = Queue()
         errors: list[Exception] = []
@@ -88,7 +95,11 @@ class AssistantWorker(QThread):
                         return
                     try:
                         self.state_changed.emit("Falando...")
-                        tts.speak(text, self.stop_event, on_level=self.level_changed.emit)
+                        def audio_level(level: float) -> None:
+                            if times["first_audio"] is None and level > 0:
+                                times["first_audio"] = time.monotonic()
+                            self.level_changed.emit(level)
+                        tts.speak(text, self.stop_event, on_level=audio_level)
                     except Exception as exc:
                         errors.append(exc)
                         return
@@ -97,6 +108,8 @@ class AssistantWorker(QThread):
             speaker.start()
 
         def on_delta(delta: str) -> None:
+            if times["first_token"] is None:
+                times["first_token"] = time.monotonic()
             for chunk in buffer.feed(delta):
                 if speaker is not None and not self.stop_event.is_set():
                     chunks.put(chunk)
@@ -127,4 +140,8 @@ class AssistantWorker(QThread):
             raise errors[0]
         if self.stop_event.is_set():
             raise Cancelled()
+        if self.settings.performance_log:
+            log_turn(self.settings.model, self.settings.voice_engine, stt_ms,
+                     requested, times["first_token"], times["first_audio"],
+                     time.monotonic())
         self.state_changed.emit("Pronto")

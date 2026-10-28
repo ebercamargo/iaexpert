@@ -124,6 +124,7 @@ class IAExpertWindow(QMainWindow):
         self.history=ConversationHistory()
         self.worker=None
         self.closing=False
+        self.restart_requested=False
         self.setWindowTitle("IAExpert — Avatar de Voz")
         self.setWindowFlags(Qt.Window|Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground,True)
@@ -137,7 +138,72 @@ class IAExpertWindow(QMainWindow):
         width=round(height*self.face.frames.width/self.face.frames.height)+32
         self.resize(width,height)
         self.move(bounds.right()-width-35,bounds.bottom()-height-20)
-        QTimer.singleShot(350,self._start)
+        QTimer.singleShot(350,self._initialize_voice)
+
+    def _initialize_voice(self):
+        if self.settings.voice_engine == "ask":
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("IAExpert — qualidade da voz")
+            dialog.setIcon(QMessageBox.Question)
+            dialog.setText("Deseja usar uma voz brasileira mais natural?")
+            dialog.setInformativeText(
+                "A voz neural online pode soar mais humana e começar mais rápido. "
+                "Para gerar a fala, o texto das respostas será enviado ao serviço "
+                "online de voz da Microsoft. O microfone e o histórico permanecem "
+                "processados localmente. Essa integração pode parar de funcionar "
+                "sem aviso e exige internet.\n\n"
+                "Sim: Francisca Neural (online).\n"
+                "Não: Piper (voz atual, totalmente local)."
+            )
+            dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            dialog.setDefaultButton(QMessageBox.No)
+            choice = dialog.exec()
+            self.settings.voice_engine = "edge" if choice == QMessageBox.Yes else "piper"
+            self.settings.save()
+        self._start()
+
+    def _choose_voice(self):
+        options = [
+            ("Neural feminina — Francisca (online)", "edge", "pt-BR-FranciscaNeural"),
+            ("Neural masculina — Antônio (online)", "edge", "pt-BR-AntonioNeural"),
+            ("Piper — voz local, sem internet", "piper", self.settings.voice_name),
+        ]
+        names = [option[0] for option in options]
+        current = next((
+            index for index, (_, engine, name) in enumerate(options)
+            if engine == self.settings.voice_engine
+            and (engine == "piper" or name == self.settings.voice_name)
+        ), 0)
+        chosen, ok = QInputDialog.getItem(
+            self, "Voz do IAExpert", "Escolha a voz:", names, current, False
+        )
+        if not ok:
+            return
+        _, engine, name = options[names.index(chosen)]
+        if engine == "edge" and self.settings.voice_engine != "edge":
+            answer = QMessageBox.question(
+                self, "Voz online", "Autoriza enviar o texto das respostas "
+                "ao serviço online de voz da Microsoft? "
+                "O microfone e o histórico não são enviados por esse recurso.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if answer != QMessageBox.Yes:
+                return
+        self.settings.voice_engine = engine
+        self.settings.voice_name = name
+        self._restart()
+
+    def _choose_recognition(self):
+        options = ["tiny — rápido (menor precisão)", "base — equilibrado",
+                   "small — mais preciso (mais lento)"]
+        keys = ["tiny", "base", "small"]
+        index = keys.index(self.settings.whisper_model) if self.settings.whisper_model in keys else 0
+        name, ok = QInputDialog.getItem(
+            self, "Reconhecimento de voz", "Velocidade/precisão:", options, index, False
+        )
+        if ok:
+            self.settings.whisper_model = keys[options.index(name)]
+            self._restart()
 
     def _start(self):
         if self.worker is not None or self.closing:
@@ -161,7 +227,10 @@ class IAExpertWindow(QMainWindow):
         self.worker=None
         self.face.set_state("Pausado")
         if self.closing:
-            QTimer.singleShot(0,self.close)
+            QTimer.singleShot(0, self.close)
+        elif self.restart_requested:
+            self.restart_requested=False
+            QTimer.singleShot(50, self._start)
 
     def _failed(self,error):
         QMessageBox.warning(self,"IAExpert",error)
@@ -169,7 +238,10 @@ class IAExpertWindow(QMainWindow):
     def _restart(self):
         self.settings.save()
         if self.worker is not None:
+            self.restart_requested=True
             self.worker.cancel()
+        else:
+            self._start()
 
     def _choose_mic(self):
         try:
@@ -192,6 +264,8 @@ class IAExpertWindow(QMainWindow):
         toggle=menu.addAction("Pausar" if self.worker else "Ouvir novamente")
         mic=menu.addAction("Selecionar microfone...")
         model=menu.addAction("Modelo de IA...")
+        neural=menu.addAction("Voz e naturalidade...")
+        recognition=menu.addAction("Reconhecimento: velocidade...")
         sound=menu.addAction("Desativar voz" if self.settings.speak_answers else "Ativar voz")
         clear=menu.addAction("Limpar histórico local")
         menu.addSeparator()
@@ -207,6 +281,10 @@ class IAExpertWindow(QMainWindow):
             if ok and value.strip():
                 self.settings.model=value.strip()
                 self._restart()
+        elif choice == neural:
+            self._choose_voice()
+        elif choice == recognition:
+            self._choose_recognition()
         elif choice == sound:
             self.settings.speak_answers=not self.settings.speak_answers
             self._restart()
