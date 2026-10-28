@@ -52,6 +52,7 @@ class AssistantWorker(QThread):
             if hasattr(tts, "preload"):
                 Thread(target=self._prepare_voice, args=(tts,), daemon=True).start()
             client = OllamaClient(self.settings)
+            Thread(target=client.preload, daemon=True, name="IAExpert-Ollama-preload").start()
             microphone = Microphone(
                 self.settings.microphone_threshold,
                 device=self.settings.microphone_device,
@@ -110,7 +111,18 @@ class AssistantWorker(QThread):
                             self.level_changed.emit(level)
                         tts.speak(text, self.stop_event, on_level=audio_level)
                     except Exception as exc:
-                        errors.append(exc)
+                        if self.settings.voice_engine != "piper" and not self.stop_event.is_set():
+                            try:
+                                from .audio import VoiceOutput
+                                self.state_changed.emit("Voz neural indisponível; usando Piper local...")
+                                VoiceOutput().speak(
+                                    text, self.stop_event, on_level=self.level_changed.emit
+                                )
+                                continue
+                            except Exception as fallback_exc:
+                                errors.append(fallback_exc)
+                        else:
+                            errors.append(exc)
                         return
 
             speaker = Thread(target=playback, name="IAExpert-TTS", daemon=True)
