@@ -17,6 +17,7 @@ from .speech import SentenceBuffer
 
 class AssistantWorker(QThread):
     state_changed = Signal(str)
+    level_changed = Signal(float)
     question_ready = Signal(str)
     answer_finished = Signal(str)
     failed = Signal(str)
@@ -87,7 +88,7 @@ class AssistantWorker(QThread):
                         return
                     try:
                         self.state_changed.emit("Falando...")
-                        tts.speak(text, self.stop_event)
+                        tts.speak(text, self.stop_event, on_level=self.level_changed.emit)
                     except Exception as exc:
                         errors.append(exc)
                         return

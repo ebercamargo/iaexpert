@@ -150,7 +150,7 @@ class VoiceOutput:
             self._voice = PiperVoice.load(str(self.directory / (VOICE_NAME + ".onnx")))
         return self._voice
 
-    def speak(self, text: str, stop: Event) -> None:
+    def speak(self, text: str, stop: Event, on_level=None) -> None:
         if stop.is_set():
             return
         # Evita que respostas muito longas bloqueiem o próximo turno de conversa.
@@ -170,8 +170,21 @@ class VoiceOutput:
             rate = wav.getframerate()
             samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype=np.int16).copy()
         sd.play(samples, samplerate=rate, blocking=False)
+        origin = time.monotonic()
         try:
-            while sd.get_stream() and sd.get_stream().active and not stop.wait(0.08):
-                pass
+            while not stop.is_set():
+                stream = sd.get_stream()
+                if stream is None or not stream.active:
+                    break
+                if on_level is not None:
+                    pos = int((time.monotonic() - origin) * rate)
+                    window = samples[pos:pos + max(256, int(rate * 0.045))]
+                    if len(window):
+                        amplitude = float(np.sqrt(np.mean(window.astype(np.float32) ** 2)))
+                        on_level(min(1.0, max(0.0, (amplitude - 240) / 3600)))
+                if stop.wait(0.033):
+                    break
         finally:
+            if on_level is not None:
+                on_level(0.0)
             sd.stop()

@@ -1,270 +1,241 @@
-"""Avatar de tela inteira: interação por voz, sem chat nem bordas."""
-
+"""Rosto flutuante com transparência real sobre as janelas do Windows."""
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import replace
-from pathlib import Path
 
 import sounddevice as sd
-from PySide6.QtCore import QPointF, Qt, QTimer, QRectF, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QRadialGradient, QPen
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication, QPainter
 from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget
 
+from .avatar import FacialFrames
 from .config import Settings
 from .history import ConversationHistory
 from .worker import AssistantWorker
+from pathlib import Path
 
 
-class AvatarCanvas(QWidget):
-    """O rosto é o único elemento visual; controles por clique e menu de contexto."""
-
+class FaceWidget(QWidget):
     clicked = Signal()
 
-    def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        super().mouseReleaseEvent(event)
-
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMouseTracking(True)
-        self.phase = 0.0
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.frames = FacialFrames(Path(__file__).resolve().parent.parent / "assets")
+        self.start_time = time.monotonic()
+        self.audio_level = 0.
+        self.level = .05
         self.mode = "idle"
-        self.message = "Iniciando..."
-        path = Path(__file__).resolve().parent.parent / "assets" / "avatar.webp"
-        self.avatar = QPixmap(str(path))
-        self.setCursor(Qt.PointingHandCursor)
-        self.tick = QTimer(self)
-        self.tick.timeout.connect(self.animate)
-        self.tick.start(45)
+        self.drag_origin = None
+        self.window_origin = None
+        self.next_blink = time.monotonic() + 3.
+        self.blink_start = None
+        self.setToolTip("Clique: pausar/escutar | Arrastar: mover | Botão direito: opções")
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(33)
 
-    def animate(self) -> None:
-        self.phase += 0.06
+    def set_state(self, text):
+        text = text.lower()
+        self.mode = ("speaking" if "falando" in text else
+                     "listening" if "ouvindo" in text else
+                     "thinking" if "pensando" in text or "reconhecendo" in text else "idle")
+        if self.mode != "speaking":
+            self.audio_level = 0.
         self.update()
 
-    def set_status(self, message: str) -> None:
-        self.message = message
-        status = message.lower()
-        if "ouvindo" in status:
-            self.mode = "listening"
-        elif "pensando" in status or "reconhecendo" in status:
-            self.mode = "thinking"
-        elif "falando" in status:
-            self.mode = "speaking"
-        elif "interromp" in status:
-            self.mode = "stopping"
-        else:
-            self.mode = "idle"
+    def set_audio_level(self, level):
+        self.audio_level = max(0., min(1., float(level)))
+
+    def _blink(self, now):
+        if self.blink_start is None and now >= self.next_blink:
+            self.blink_start = now
+        if self.blink_start is None:
+            return 0.
+        phase = (now - self.blink_start)/.23
+        if phase >= 1:
+            self.blink_start = None
+            self.next_blink = now + 2.6 + 2.4*abs(math.sin(now))
+            return 0.
+        return math.sin(math.pi * phase)**2
+
+    def _tick(self):
+        wanted = self.audio_level if self.mode == "speaking" else .05
+        self.level += (wanted-self.level)*.45
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        painter.fillRect(self.rect(), QColor("#040911"))
-
-        center = QPointF(w / 2, h * 0.48)
-        halo = QRadialGradient(center, min(w, h) * 0.71)
-        halo.setColorAt(0, QColor(27, 95, 151, 85))
-        halo.setColorAt(0.55, QColor(7, 36, 69, 52))
-        halo.setColorAt(1, QColor(4, 9, 17, 0))
-        painter.fillRect(self.rect(), halo)
-
-        if not self.avatar.isNull():
-            ratio = self.avatar.width() / max(self.avatar.height(), 1)
-            face_h = min(h * 0.91, w / max(ratio, 0.01) * 0.92)
-            breathing = 1 + 0.006 * math.sin(self.phase * 0.55)
-            face_h *= breathing
-            face_w = face_h * ratio
-            top = h * 0.47 - face_h * 0.48
-            rect = QRectF((w - face_w) / 2, top, face_w, face_h)
-            painter.setOpacity(1.0)
-            painter.drawPixmap(rect, self.avatar, QRectF(self.avatar.rect()))
-        else:
-            painter.setPen(QColor("#63d3eb"))
-            painter.setFont(QFont("Segoe UI", 16))
-            painter.drawText(self.rect(), Qt.AlignCenter, "Imagem do avatar não encontrada")
-
-        color = QColor("#55e0eb")
-        if self.mode == "speaking":
-            color = QColor("#ae9cff")
-        elif self.mode in ("idle", "stopping"):
-            color = QColor("#7a8b9d")
-
-        if self.mode in ("listening", "thinking", "speaking"):
-            alpha = 85 + int(75 * (0.5 + 0.5 * math.sin(self.phase * 2.3)))
-            color.setAlpha(alpha)
-            painter.setPen(QPen(color, 2))
-            # Indicador de atividade discreto, sem moldura ou painel.
-            y = h * 0.935
-            for i in range(15):
-                x = w / 2 + (i - 7) * 10
-                bar = (4 + 16 * abs(math.sin(self.phase * 2 + i * 0.66)))
-                painter.drawLine(QPointF(x, y - bar / 2), QPointF(x, y + bar / 2))
-
-        painter.setPen(QColor("#a7dbea"))
-        painter.setFont(QFont("Segoe UI", max(10, min(16, int(h * 0.018)))))
-        painter.drawText(QRectF(0, h - 48, w, 22), Qt.AlignCenter, self.message)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), Qt.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        t = time.monotonic()-self.start_time
+        blink = self._blink(time.monotonic())
+        openness = self.level*(.65+.35*abs(math.sin(t*12.8)))
+        if self.mode != "speaking":
+            openness = .055 + .01*math.sin(t*1.7)
+        img=self.frames.frame(openness, blink)
+        w,h=self.width(),self.height()
+        ratio=self.frames.width/self.frames.height
+        draw_h=h-32
+        draw_w=draw_h*ratio
+        if draw_w > w-32:
+            draw_w=w-32
+            draw_h=draw_w/ratio
+        painter.translate(QPointF(w/2,h/2))
+        painter.rotate(1.3*math.sin(t*.67)+.3*math.sin(t*1.21))
+        scale=1+.004*math.sin(t*1.4)
+        painter.scale(scale,scale)
+        painter.translate(QPointF(-w/2,-h/2))
+        painter.drawPixmap(QRectF((w-draw_w)/2,(h-draw_h)/2,draw_w,draw_h),
+                           img,QRectF(img.rect()))
         painter.end()
+
+    def mousePressEvent(self,event):
+        if event.button() == Qt.LeftButton:
+            self.drag_origin=event.globalPosition().toPoint()
+            self.window_origin=self.window().pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self,event):
+        if self.drag_origin is not None:
+            delta=event.globalPosition().toPoint()-self.drag_origin
+            if delta.manhattanLength()>4:
+                self.window().move(self.window_origin+delta)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self,event):
+        if event.button() == Qt.LeftButton and self.drag_origin is not None:
+            delta=event.globalPosition().toPoint()-self.drag_origin
+            if delta.manhattanLength()<7:
+                self.clicked.emit()
+            self.drag_origin=None
+            self.window_origin=None
+        super().mouseReleaseEvent(event)
 
 
 class IAExpertWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self.settings = Settings.load()
-        # Migração para modelo mais leve; o usuário pode voltar ao 4B pelo menu.
-        if self.settings.model == "qwen3.5:4b":
-            self.settings.model = "qwen3.5:2b"
-            self.settings.save()
-        self.history = ConversationHistory()
-        self.worker: AssistantWorker | None = None
-        self.pending_close = False
+        self.settings=Settings.load()
+        self.history=ConversationHistory()
+        self.worker=None
+        self.closing=False
+        self.setWindowTitle("IAExpert — Avatar de Voz")
+        self.setWindowFlags(Qt.Window|Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground,True)
+        self.face=FaceWidget(self)
+        self.setCentralWidget(self.face)
+        self.face.clicked.connect(self.toggle)
+        self.face.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.face.customContextMenuRequested.connect(self._menu)
+        bounds=QGuiApplication.primaryScreen().availableGeometry()
+        height=min(730,max(340,int(bounds.height()*.77)))
+        width=round(height*self.face.frames.width/self.face.frames.height)+32
+        self.resize(width,height)
+        self.move(bounds.right()-width-35,bounds.bottom()-height-20)
+        QTimer.singleShot(350,self._start)
 
-        self.setWindowTitle("IAExpert — Assistente de Voz")
-        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.canvas = AvatarCanvas(self)
-        self.setCentralWidget(self.canvas)
-        self.canvas.setToolTip(
-            "Clique: pausar/retomar a escuta. Botão direito: configurações. Esc: sair."
-        )
-        self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.canvas.customContextMenuRequested.connect(self._menu)
-        self.canvas.clicked.connect(self._toggle_listening)
-        self.showMaximized()
-        QTimer.singleShot(600, self._start)
-
-    def _start(self) -> None:
-        if self.worker is not None or self.pending_close:
+    def _start(self):
+        if self.worker is not None or self.closing:
             return
-        self.canvas.set_status("Preparando microfone...")
-        worker = AssistantWorker(replace(self.settings), self.history)
-        worker.state_changed.connect(self.canvas.set_status)
+        worker=AssistantWorker(replace(self.settings),self.history)
+        worker.state_changed.connect(self.face.set_state)
+        worker.level_changed.connect(self.face.set_audio_level)
         worker.failed.connect(self._failed)
         worker.finished.connect(self._finished)
-        self.worker = worker
+        self.worker=worker
         worker.start()
 
-    def _toggle_listening(self) -> None:
+    def toggle(self):
         if self.worker is None:
             self._start()
         else:
-            self.canvas.set_status("Interrompendo...")
             self.worker.cancel()
+            self.face.set_state("Pausado")
 
-    def _finished(self) -> None:
-        self.worker = None
-        if self.pending_close:
-            QTimer.singleShot(0, self.close)
-        else:
-            self.canvas.set_status("Pausado — clique no rosto para ouvir")
+    def _finished(self):
+        self.worker=None
+        self.face.set_state("Pausado")
+        if self.closing:
+            QTimer.singleShot(0,self.close)
 
-    def _failed(self, message: str) -> None:
-        self.canvas.set_status("Erro no áudio")
-        QMessageBox.warning(self, "IAExpert — problema na conversa", message)
+    def _failed(self,error):
+        QMessageBox.warning(self,"IAExpert",error)
 
-    def _menu(self, point) -> None:
-        menu = QMenu(self)
-        toggle = menu.addAction("Pausar escuta" if self.worker else "Voltar a ouvir")
-        microphone = menu.addAction("Escolher microfone...")
-        model = menu.addAction("Escolher modelo de IA...")
-        voice = menu.addAction(
-            "Desativar voz" if self.settings.speak_answers else "Ativar voz"
-        )
-        clear = menu.addAction("Apagar histórico local")
-        menu.addSeparator()
-        fullscreen = menu.addAction("Alternar tela inteira (F11)")
-        leave = menu.addAction("Sair (Esc)")
-        chosen = menu.exec(self.canvas.mapToGlobal(point))
-        if chosen == toggle:
-            self._toggle_listening()
-        elif chosen == microphone:
-            self._microphone_settings()
-        elif chosen == model:
-            self._model_settings()
-        elif chosen == voice:
-            self.settings.speak_answers = not self.settings.speak_answers
-            self.settings.save()
-            self._restart_if_active()
-        elif chosen == clear:
-            if QMessageBox.question(self, "Apagar conversa", "Apagar o histórico salvo neste PC?") == QMessageBox.Yes:
-                self.history.clear()
-        elif chosen == fullscreen:
-            self._toggle_fullscreen()
-        elif chosen == leave:
-            self.close()
-
-    def _microphone_settings(self) -> None:
-        devices = [(None, "Padrão do Windows")]
-        try:
-            devices.extend(
-                (idx, f"{dev['name']} [{idx}]")
-                for idx, dev in enumerate(sd.query_devices())
-                if dev["max_input_channels"] > 0
-            )
-        except Exception as exc:
-            QMessageBox.warning(self, "Microfone", str(exc))
-            return
-        names = [label for _, label in devices]
-        current = next((i for i, (id_, _) in enumerate(devices)
-                        if id_ == self.settings.microphone_device), 0)
-        selection, ok = QInputDialog.getItem(
-            self, "Microfone", "Dispositivo de entrada", names, current, False
-        )
-        if ok:
-            self.settings.microphone_device = devices[names.index(selection)][0]
-            self.settings.save()
-            self._restart_if_active()
-
-    def _model_settings(self) -> None:
-        names = ["qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b"]
-        selection, ok = QInputDialog.getItem(
-            self, "Modelo local", "Modelo instalado no Ollama",
-            names, names.index(self.settings.model) if self.settings.model in names else 0, True
-        )
-        if ok and selection.strip():
-            self.settings.model = selection.strip()
-            self.settings.save()
-            self._restart_if_active()
-
-    def _restart_if_active(self) -> None:
+    def _restart(self):
+        self.settings.save()
         if self.worker is not None:
             self.worker.cancel()
-            self.canvas.set_status(
-                "Configuração salva. Clique no rosto para retomar após parar."
-            )
 
-    def _toggle_fullscreen(self) -> None:
-        if self.isFullScreen():
-            self.showMaximized()
-        else:
-            self.showFullScreen()
+    def _choose_mic(self):
+        try:
+            options=[(None,"Padrão do Windows")]
+            options += [(i,f"{dev['name']} [{i}]") for i,dev in enumerate(sd.query_devices())
+                        if dev["max_input_channels"]>0]
+        except Exception as exc:
+            QMessageBox.warning(self,"Microfone",str(exc))
+            return
+        labels=[text for _,text in options]
+        cur=next((i for i,(id_,_) in enumerate(options)
+                  if id_ == self.settings.microphone_device),0)
+        value,ok=QInputDialog.getItem(self,"Microfone","Dispositivo de entrada",labels,cur,False)
+        if ok:
+            self.settings.microphone_device=options[labels.index(value)][0]
+            self._restart()
 
-    def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key_Escape:
+    def _menu(self,point):
+        menu=QMenu(self)
+        toggle=menu.addAction("Pausar" if self.worker else "Ouvir novamente")
+        mic=menu.addAction("Selecionar microfone...")
+        model=menu.addAction("Modelo de IA...")
+        sound=menu.addAction("Desativar voz" if self.settings.speak_answers else "Ativar voz")
+        clear=menu.addAction("Limpar histórico local")
+        menu.addSeparator()
+        quit_=menu.addAction("Sair")
+        choice=menu.exec(self.face.mapToGlobal(point))
+        if choice == toggle:
+            self.toggle()
+        elif choice == mic:
+            self._choose_mic()
+        elif choice == model:
+            names=["qwen3.5:2b","qwen3.5:4b","qwen3.5:9b"]
+            value,ok=QInputDialog.getItem(self,"Modelo Ollama","Modelo:",names,0,True)
+            if ok and value.strip():
+                self.settings.model=value.strip()
+                self._restart()
+        elif choice == sound:
+            self.settings.speak_answers=not self.settings.speak_answers
+            self._restart()
+        elif choice == clear:
+            if QMessageBox.question(self,"Histórico","Apagar conversa salva?")==QMessageBox.Yes:
+                self.history.clear()
+        elif choice == quit_:
             self.close()
-        elif event.key() == Qt.Key_Space:
-            self._toggle_listening()
-        elif event.key() == Qt.Key_F11:
-            self._toggle_fullscreen()
-        elif event.key() == Qt.Key_M and event.modifiers() & Qt.ControlModifier:
-            self._microphone_settings()
+
+    def keyPressEvent(self,event):
+        if event.key()==Qt.Key_Escape:
+            self.close()
+        elif event.key()==Qt.Key_Space:
+            self.toggle()
         else:
             super().keyPressEvent(event)
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self,event):
         if self.worker is not None:
-            event.ignore()
-            self.pending_close = True
+            self.closing=True
             self.worker.cancel()
-            self.canvas.set_status("Encerrando...")
+            event.ignore()
         else:
             event.accept()
 
 
-def main() -> None:
-    app = QApplication([])
+def main():
+    app=QApplication([])
     app.setApplicationName("IAExpert")
-    window = IAExpertWindow()
+    window=IAExpertWindow()
     window.show()
     app.exec()
