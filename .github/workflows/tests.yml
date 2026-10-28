@@ -1,4 +1,4 @@
-name: Testes Python
+name: Testes Python e avatar
 
 on:
   push:
@@ -7,11 +7,18 @@ on:
 jobs:
   unittest:
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Dependências de teste gráfico
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libportaudio2 libegl1 libgl1 libxkbcommon0
+          python -m pip install "PySide6>=6.8,<7" "numpy>=1.26,<3" "opencv-python-headless>=4.10,<4.12" "sounddevice>=0.5,<1"
       - name: Verificar sintaxe Python
         run: python -m compileall -q iaexpert tests
       - name: Executar testes unitários
