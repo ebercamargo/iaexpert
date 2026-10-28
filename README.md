@@ -118,3 +118,32 @@ git pull origin main
 ~~~
 
 O inicializador instala as novas bibliotecas automaticamente quando o `requirements.txt` é alterado.
+
+
+## GPU (NVIDIA/AMD), reconhecimento e voz neural local
+
+O IAExpert usa **Ollama**, que seleciona automaticamente aceleração por GPU compatível no Windows (NVIDIA ou AMD). Use `ollama ps` para confirmar se o modelo está na GPU. A quantidade de VRAM e a compatibilidade da placa determinam a aceleração real.
+
+O reconhecimento **Faster-Whisper** inicia em modo **Automático**: procura CUDA/CTranslate2; se não estiver disponível, executa na CPU sem exigir instalação adicional. O suporte CUDA requer **NVIDIA**, CUDA 12, cuBLAS e cuDNN 9 compatíveis. Placas AMD/Intel ainda podem acelerar o Ollama, mas não esse caminho CUDA do Whisper. Clicar com o botão direito no rosto → **Reconhecimento: GPU/CPU...** permite escolher automático, CPU ou forçar CUDA.
+
+### Voz mais humana, sem enviar texto a terceiros
+
+Se houver GPU NVIDIA CUDA com VRAM suficiente (o consumo varia conforme driver e modelos), é possível instalar **Chatterbox Multilingual V3**, sintetizador neural local que suporta português brasileiro. A biblioteca Chatterbox é MIT, mas o download dos pesos pode consumir vários gigabytes, e a voz pode demorar na primeira execução. A instalação **não é automática** porque envolve PyTorch e pacotes CUDA grandes:
+
+~~~powershell
+.\Instalar-Voz-GPU.ps1
+~~~
+
+Após a instalação, reinicie o IAExpert, clique com o botão direito no rosto → **Voz e naturalidade...** → **Chatterbox — neural local NVIDIA GPU**. O primeiro uso baixa o modelo. O código usa `ChatterboxMultilingualTTS.from_pretrained(device="cuda", t3_model="v3")` e gera texto em português usando `language_id="pt"`. Se o motor falhar, o IAExpert tenta continuar com o Piper local.
+
+**Não há garantia de que Chatterbox será mais rápido que a voz online:** ele melhora a naturalidade, mas pode demandar mais processamento por frase. A versão V3 multilíngue tem aproximadamente 500M parâmetros. Se a GPU for antiga ou tiver pouca VRAM, mantenha o Piper local ou use a voz neural online opcional mediante autorização. O Ollama e o Chatterbox podem competir pela VRAM.
+
+### Identificar gargalo
+
+Na pasta do projeto, execute:
+
+~~~powershell
+.\Diagnosticar-GPU.ps1
+~~~
+
+O script identifica o adaptador gráfico, consulta `nvidia-smi` (quando disponível), verifica CUDA no CTranslate2 e PyTorch, mostra `ollama ps` e apresenta os últimos tempos registrados. A medição é feita sem registrar o texto do usuário. A primeira pergunta pode demorar pelo carregamento do modelo; o aplicativo pré-carrega o Ollama em paralelo à escuta do microfone. O desempenho real só pode ser medido no seu PC.
