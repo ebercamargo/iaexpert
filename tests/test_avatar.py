@@ -21,6 +21,8 @@ class AvatarTests(unittest.TestCase):
         asset_dir = Path(__file__).resolve().parents[1] / "assets"
         avatar = FacialFrames(asset_dir)
         self.assertEqual(len(avatar.frames), 13)
+        self.assertGreaterEqual(avatar.width, 700)
+        self.assertGreaterEqual(avatar.height, 1000)
         self.assertTrue(avatar.frames[0].hasAlphaChannel())
         first = avatar.frames[0].toImage().pixelColor(0, 0).alpha()
         self.assertEqual(first, 0)

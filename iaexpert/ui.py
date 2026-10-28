@@ -74,9 +74,9 @@ class FaceWidget(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         t = time.monotonic()-self.start_time
         blink = self._blink(time.monotonic())
-        openness = self.level*(.65+.35*abs(math.sin(t*12.8)))
+        openness = min(1.0, 0.10 + self.level * 1.1)
         if self.mode != "speaking":
-            openness = .055 + .01*math.sin(t*1.7)
+            openness = 0.0
         img=self.frames.frame(openness, blink)
         w,h=self.width(),self.height()
         ratio=self.frames.width/self.frames.height
@@ -86,7 +86,7 @@ class FaceWidget(QWidget):
             draw_w=w-32
             draw_h=draw_w/ratio
         painter.translate(QPointF(w/2,h/2))
-        painter.rotate(1.3*math.sin(t*.67)+.3*math.sin(t*1.21))
+        painter.rotate(0.55*math.sin(t*.67)+.18*math.sin(t*1.21))
         scale=1+.004*math.sin(t*1.4)
         painter.scale(scale,scale)
         painter.translate(QPointF(-w/2,-h/2))
@@ -133,7 +133,7 @@ class IAExpertWindow(QMainWindow):
         self.face.setContextMenuPolicy(Qt.CustomContextMenu)
         self.face.customContextMenuRequested.connect(self._menu)
         bounds=QGuiApplication.primaryScreen().availableGeometry()
-        height=min(730,max(340,int(bounds.height()*.77)))
+        height=min(620,max(340,int(bounds.height()*.63)))
         width=round(height*self.face.frames.width/self.face.frames.height)+32
         self.resize(width,height)
         self.move(bounds.right()-width-35,bounds.bottom()-height-20)

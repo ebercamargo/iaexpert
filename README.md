@@ -37,7 +37,7 @@ Por padrão, a escuta contínua fica ativa; depois de falar, a IA volta a ouvir.
 - O silêncio para encerrar a pergunta foi reduzido a 0,72 segundo.
 - O texto da conversa não aparece na tela; o histórico continua salvo localmente para manter o contexto.
 
-A velocidade final depende do processador, da saída de áudio e dos modelos instalados. O primeiro uso pode demorar pelo download dos modelos. O avatar utiliza deformações faciais 2D: abertura dos lábios acompanhando a amplitude real do áudio, piscadas e balanço de cabeça. **Isso não equivale a um modelo de vídeo facial com fonemas e músculos precisos**, mas o rosto deixa de ser estático. Para melhorar a qualidade do rosto, é possível salvar uma imagem RGBA de alta resolução em `assets/avatar-head.webp`. O arquivo anterior `assets/avatar.webp` continua funcionando como alternativa.
+A velocidade final depende do processador, da saída de áudio e dos modelos instalados. O primeiro uso pode demorar pelo download dos modelos. O avatar utiliza deformações faciais 2D: abertura dos lábios acompanhando a amplitude real do áudio, piscadas e balanço de cabeça. **Isso não equivale a um modelo de vídeo facial com fonemas e músculos precisos**, mas o rosto deixa de ser estático. Para melhorar a qualidade do rosto, é possível substituir a imagem padrão de alta resolução em `assets/avatar-v2.webp`. O novo arquivo `assets/avatar-v2.webp` é incluído automaticamente pela atualização da branch principal. A imagem antiga não é mais escolhida por padrão.
 
 ## Diagnóstico
 
@@ -61,3 +61,9 @@ Ainda não realiza comandos do computador ou buscas na internet automaticamente.
 ## Fundo transparente e sobreposição
 
 A janela usa os atributos de transparência do Windows/Qt e a opção de permanecer acima das outras janelas. A transparência não é um fundo fictício: você verá o navegador ou qualquer outro aplicativo que estiver aberto atrás do rosto. Uma imagem com fundo opaco não é adequada; o retrato precisa possuir um canal alpha.
+
+## Retrato v2 corrigido
+
+A partir desta versão, `assets/avatar-v2.webp` é a imagem padrão: 818 × 1131 pixels, cor e transparência reais. O retrato antigo não é ampliado. A deformação da boca foi restringida aos lábios para evitar alongamento do queixo e do nariz. Se você já havia colocado um `assets/avatar-head.webp` manualmente, ele deixa de ter prioridade. Feche o IAExpert e use `git pull origin main` seguido de `IAExpert.cmd`.
+
+A animação facial continua sendo uma aproximação 2D guiada pela amplitude, não uma representação realista de fonemas ou músculos em 3D.
