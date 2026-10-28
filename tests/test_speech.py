@@ -13,6 +13,10 @@ class SpeechTests(unittest.TestCase):
         text = "**Olá**, *tudo bem*? #Título e __exemplo__"
         self.assertEqual(spoken_text(text), "Olá, tudo bem? Título e exemplo")
 
+    def test_intonation_punctuation(self):
+        self.assertEqual(spoken_text("Como você está?"), "Como você está?")
+        self.assertEqual(spoken_text("Que ótimo!"), "Que ótimo!")
+
     def test_bullets_and_links(self):
         self.assertNotIn("*", spoken_text("1. **Olá**\n- *Tudo* bem?"))
         self.assertEqual(spoken_text("[site](https://example.com)"), "site")
@@ -20,7 +24,7 @@ class SpeechTests(unittest.TestCase):
     def test_incremental_speech(self):
         buffer = SentenceBuffer()
         self.assertEqual(buffer.feed("Olá! Como vai você hoje? "), ["Olá! Como vai você hoje?"])
-        self.assertEqual(buffer.feed("Estou aqui para ajudar. "), ["Estou aqui para ajudar"])
+        self.assertEqual(buffer.feed("Estou aqui para ajudar. "), ["Estou aqui para ajudar."])
         self.assertEqual(buffer.finish(), "")
 
     def test_long_phrase(self):

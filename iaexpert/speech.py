@@ -17,7 +17,7 @@ def spoken_text(text: str) -> str:
     text = re.sub(r"[\r\n]+", ". ", text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\.{2,}", ".", text)
-    return text.strip(" .,;:-")
+    return text.strip(" ,;:-")
 
 
 class SentenceBuffer:

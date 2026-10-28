@@ -93,24 +93,55 @@ class SpeechToText:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._model = None
+        self.device = 'cpu'
 
     def transcribe(self, audio: np.ndarray) -> str:
         if self._model is None:
             from faster_whisper import WhisperModel
 
-            self._model = WhisperModel(
-                self.settings.whisper_model,
-                device="cpu",
-                compute_type="int8",
+            device = self.settings.stt_device
+            if device == "auto":
+                try:
+                    import ctranslate2
+                    # Verificação não carrega modelo nem usa rede.
+                    ctranslate2.get_supported_compute_types("cuda")
+                    device = "cuda"
+                except (RuntimeError, OSError, ValueError):
+                    device = "cpu"
+            self.device = device
+            try:
+                self._model = WhisperModel(
+                    self.settings.whisper_model,
+                    device=device,
+                    compute_type="float16" if device == "cuda" else "int8",
+                )
+            except (RuntimeError, OSError, ValueError):
+                if device == "cpu" or self.settings.stt_device == "cuda":
+                    raise
+                self.device = "cpu"
+                self._model = WhisperModel(
+                    self.settings.whisper_model, device="cpu", compute_type="int8"
+                )
+        try:
+            segments, _ = self._model.transcribe(
+                audio, language="pt", beam_size=1,
+                vad_filter=False, condition_on_previous_text=False,
             )
-        segments, _ = self._model.transcribe(
-            audio,
-            language="pt",
-            beam_size=1,
-            vad_filter=False,
-            condition_on_previous_text=False,
-        )
-        return " ".join(segment.text.strip() for segment in segments).strip()
+            return " ".join(part.text.strip() for part in segments).strip()
+        except (RuntimeError, OSError, ValueError):
+            if self.device != "cuda" or self.settings.stt_device == "cuda":
+                raise
+            # Bibliotecas CUDA podem carregar e falhar na primeira inferência.
+            from faster_whisper import WhisperModel
+            self._model = WhisperModel(
+                self.settings.whisper_model, device="cpu", compute_type="int8"
+            )
+            self.device = "cpu"
+            segments, _ = self._model.transcribe(
+                audio, language="pt", beam_size=1,
+                vad_filter=False, condition_on_previous_text=False,
+            )
+            return " ".join(part.text.strip() for part in segments).strip()
 
 
 class VoiceOutput:

@@ -32,6 +32,23 @@ class OllamaClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
+    def preload(self) -> None:
+        """Solicita ao Ollama carregar o modelo na memória, sem enviar mensagens."""
+        req = request.Request(
+            self.settings.ollama_url.rstrip("/") + "/api/generate",
+            data=json.dumps({
+                "model": self.settings.model, "stream": False,
+                "keep_alive": "30m"
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=90) as response:
+                response.read(1)
+        except (OSError, TimeoutError, ValueError):
+            # Chat reportará um erro com instruções caso a conexão falhe.
+            pass
+
     def chat(
         self,
         text: str,
@@ -42,7 +59,7 @@ class OllamaClient:
         if cancelled():
             raise Cancelled()
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(history[-20:])
+        messages.extend(history[-8:])
         messages.append({"role": "user", "content": text})
         payload = json.dumps(
             {
@@ -50,8 +67,8 @@ class OllamaClient:
                 "messages": messages,
                 "stream": True,
                 "think": False,
-                "keep_alive": "20m",
-                "options": {"temperature": 0.45, "num_ctx": 2048, "num_predict": 144},
+                "keep_alive": "30m",
+                "options": {"temperature": 0.45, "num_ctx": 1536, "num_predict": 104},
             }
         ).encode("utf-8")
         req = request.Request(
