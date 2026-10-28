@@ -1,6 +1,6 @@
 # IAExpert — assistente de voz local
 
-O IAExpert é um assistente conversacional público para Windows: você fala em português, a IA responde falando. A interface é **apenas um rosto na tela**: não há chat, caixas de digitação, botões ou bordas. Um pequeno indicador de atividade mostra quando está ouvindo, pensando ou falando.
+O IAExpert é um assistente conversacional público para Windows: você fala em português, a IA responde falando. A interface é **somente o rosto, flutuando sobre os programas abertos no computador**: sem chat, caixas de digitação, bordas ou fundo artificial. O restante da janela é realmente transparente. A boca abre/fecha em função do áudio que está saindo do alto-falante, o rosto se inclina suavemente e os olhos piscam.
 
 ## Instalar ou atualizar (Windows 10/11)
 
@@ -23,7 +23,7 @@ Na primeira pergunta falada, os modelos de reconhecimento de voz e síntese são
 - **Clique esquerdo no rosto** ou **espaço**: pausar ou retomar escuta.
 - **Clique direito no rosto**: trocar microfone, trocar modelo, ativar/desativar voz, limpar histórico ou sair.
 - **Ctrl+M**: escolher microfone.
-- **F11**: alternar maximizado/tela cheia, ambos sem moldura.
+- **Arrastar o rosto**: mudar de posição, mantendo visíveis as janelas abertas atrás dele.
 - **Esc**: encerrar IAExpert.
 
 Por padrão, a escuta contínua fica ativa; depois de falar, a IA volta a ouvir. Use fones para evitar que a própria voz sintetizada seja capturada pelo microfone.
@@ -37,7 +37,7 @@ Por padrão, a escuta contínua fica ativa; depois de falar, a IA volta a ouvir.
 - O silêncio para encerrar a pergunta foi reduzido a 0,72 segundo.
 - O texto da conversa não aparece na tela; o histórico continua salvo localmente para manter o contexto.
 
-A velocidade final depende do processador, da saída de áudio e dos modelos instalados. O primeiro uso pode demorar pelo download dos modelos. O avatar é uma ilustração com efeitos de atividade e respiração discretos, **ainda não possui sincronização labial real**.
+A velocidade final depende do processador, da saída de áudio e dos modelos instalados. O primeiro uso pode demorar pelo download dos modelos. O avatar utiliza deformações faciais 2D: abertura dos lábios acompanhando a amplitude real do áudio, piscadas e balanço de cabeça. **Isso não equivale a um modelo de vídeo facial com fonemas e músculos precisos**, mas o rosto deixa de ser estático. Para melhorar a qualidade do rosto, é possível salvar uma imagem RGBA de alta resolução em `assets/avatar-head.webp`. O arquivo anterior `assets/avatar.webp` continua funcionando como alternativa.
 
 ## Diagnóstico
 
@@ -57,3 +57,7 @@ py -3.11 -m venv .venv
 Veja [CONTRIBUTING.md](CONTRIBUTING.md). Código do repositório sob licença [Apache 2.0](LICENSE); dependências têm suas próprias licenças, incluindo o Piper TTS (GPL-3.0-or-later). Verificar as condições antes da redistribuição em binário. Sem API paga obrigatória.
 
 Ainda não realiza comandos do computador ou buscas na internet automaticamente.
+
+## Fundo transparente e sobreposição
+
+A janela usa os atributos de transparência do Windows/Qt e a opção de permanecer acima das outras janelas. A transparência não é um fundo fictício: você verá o navegador ou qualquer outro aplicativo que estiver aberto atrás do rosto. Uma imagem com fundo opaco não é adequada; o retrato precisa possuir um canal alpha.

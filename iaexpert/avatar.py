@@ -40,6 +40,10 @@ class FacialFrames:
         if image.ndim != 3 or image.shape[2] != 4:
             raise ValueError("O avatar deve conter um canal alpha (RGBA).")
         image=cv2.cvtColor(image,cv2.COLOR_BGRA2RGBA)
+        if image.shape[1] < 360:
+            factor = max(2, round(430 / image.shape[1]))
+            image = cv2.resize(image, None, fx=factor, fy=factor,
+                               interpolation=cv2.INTER_LANCZOS4)
         self.width=image.shape[1]
         self.height=image.shape[0]
         self.frames=[_pixmap(_morph(image,i/12.0,0.0)) for i in range(13)]
