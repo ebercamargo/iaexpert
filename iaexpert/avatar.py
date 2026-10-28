@@ -37,8 +37,26 @@ class FacialFrames:
         original = high_res if high_res.is_file() else folder/"avatar.webp"
         image=cv2.imread(str(original),cv2.IMREAD_UNCHANGED)
         if image is None: raise FileNotFoundError(f"Arquivo do rosto ausente: {original}")
+        if image.ndim == 3 and image.shape[2] == 3:
+            # Migração: o avatar antigo vinha sem alpha e com um retângulo azul.
+            # Recortamos a silhueta em vez de pintar um fundo falso na tela.
+            h,w=image.shape[:2]
+            outline=np.array([
+                (.49,0),(.38,.01),(.26,.04),(.18,.095),(.105,.19),
+                (.065,.29),(.045,.39),(.044,.52),(.015,.56),(.025,.65),
+                (.08,.73),(.135,.795),(.2,.87),(.29,.94),(.355,.995),
+                (.63,.995),(.71,.94),(.79,.87),(.865,.795),(.92,.73),
+                (.97,.64),(.985,.55),(.957,.50),(.955,.38),(.93,.29),
+                (.89,.19),(.82,.095),(.73,.04),(.60,.01)
+            ],np.float32)
+            outline=np.rint(outline*np.array([w-1,h-1])).astype(np.int32)
+            matte=np.zeros((h,w),np.uint8)
+            cv2.fillPoly(matte,[outline],255)
+            matte=cv2.GaussianBlur(matte,(7,7),1.3)
+            image=cv2.cvtColor(image,cv2.COLOR_BGR2BGRA)
+            image[:,:,3]=matte
         if image.ndim != 3 or image.shape[2] != 4:
-            raise ValueError("O avatar deve conter um canal alpha (RGBA).")
+            raise ValueError("A imagem do avatar não pôde ser carregada.")
         image=cv2.cvtColor(image,cv2.COLOR_BGRA2RGBA)
         if image.shape[1] < 360:
             factor = max(2, round(430 / image.shape[1]))
