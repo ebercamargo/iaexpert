@@ -16,6 +16,8 @@ import sounddevice as sd
 
 from .config import Settings
 from .audio import VoiceOutput
+from threading import Lock
+import logging
 
 
 NATURAL_VOICES = {
@@ -100,9 +102,60 @@ class NaturalVoice:
             ) from exc
 
 
+
+class ChatterboxVoice:
+    """Voz neural multilíngue PT-BR na GPU. Dependência opcional, nunca na CPU."""
+
+    def __init__(self) -> None:
+        self._model = None
+        self._lock = Lock()
+
+    def preload(self) -> None:
+        self._load()
+
+    def _load(self):
+        with self._lock:
+            if self._model is not None:
+                return self._model
+            try:
+                import torch
+                from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Instale a voz GPU opcional pelo script Instalar-Voz-GPU.ps1."
+                ) from exc
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "O Chatterbox requer GPU NVIDIA com PyTorch CUDA. "
+                    "Escolha Francisca online ou Piper local no menu."
+                )
+            self._model = ChatterboxMultilingualTTS.from_pretrained(
+                device="cuda", t3_model="v3"
+            )
+            return self._model
+
+    def speak(self, text: str, stop: Event, on_level=None) -> None:
+        if stop.is_set() or not text.strip():
+            return
+        import torch
+
+        model = self._load()
+        if stop.is_set():
+            return
+        with self._lock, torch.inference_mode():
+            wav = model.generate(text[:650].strip(), language_id="pt")
+        if stop.is_set():
+            return
+        signal = wav.detach().float().cpu().numpy().reshape(-1)
+        pcm = np.clip(signal, -1.0, 1.0)
+        pcm = (pcm * 32767).astype(np.int16)
+        play_pcm(pcm, model.sr, stop, on_level)
+
 def choose_voice(settings: Settings):
     if settings.voice_engine == "edge":
         return NaturalVoice(settings.voice_name)
+    if settings.voice_engine == "chatterbox":
+        return ChatterboxVoice()
     if settings.voice_engine == "piper":
         return VoiceOutput()
     raise ValueError("Escolha o motor de voz antes de iniciar a conversa.")

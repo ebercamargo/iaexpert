@@ -167,6 +167,7 @@ class IAExpertWindow(QMainWindow):
             ("Neural feminina — Francisca (online)", "edge", "pt-BR-FranciscaNeural"),
             ("Neural masculina — Antônio (online)", "edge", "pt-BR-AntonioNeural"),
             ("Piper — voz local, sem internet", "piper", self.settings.voice_name),
+            ("Chatterbox — neural local NVIDIA GPU", "chatterbox", self.settings.voice_name),
         ]
         names = [option[0] for option in options]
         current = next((
@@ -189,9 +190,37 @@ class IAExpertWindow(QMainWindow):
             )
             if answer != QMessageBox.Yes:
                 return
+        if engine == "chatterbox":
+            try:
+                import importlib.util
+                import torch
+                if importlib.util.find_spec("chatterbox") is None or not torch.cuda.is_available():
+                    QMessageBox.information(
+                        self, "Voz GPU", "A voz Chatterbox requer uma GPU NVIDIA "
+                        "compatível e instalação adicional. Execute Instalar-Voz-GPU.ps1 "
+                        "na pasta do projeto e reinicie."
+                    )
+                    return
+            except ImportError:
+                QMessageBox.information(
+                    self, "Voz GPU", "Instale o PyTorch CUDA e a voz Chatterbox "
+                    "com Instalar-Voz-GPU.ps1 antes de selecionar esta opção."
+                )
+                return
         self.settings.voice_engine = engine
         self.settings.voice_name = name
         self._restart()
+
+    def _choose_gpu(self):
+        names = ["Automático (GPU NVIDIA se disponível)", "Somente CPU", "Forçar CUDA"]
+        values = ["auto", "cpu", "cuda"]
+        selected = values.index(self.settings.stt_device)
+        label, accepted = QInputDialog.getItem(
+            self, "Aceleração de voz", "Dispositivo Whisper:", names, selected, False
+        )
+        if accepted:
+            self.settings.stt_device = values[names.index(label)]
+            self._restart()
 
     def _choose_recognition(self):
         options = ["tiny — rápido (menor precisão)", "base — equilibrado",
@@ -266,6 +295,7 @@ class IAExpertWindow(QMainWindow):
         model=menu.addAction("Modelo de IA...")
         neural=menu.addAction("Voz e naturalidade...")
         recognition=menu.addAction("Reconhecimento: velocidade...")
+        gpu=menu.addAction("Reconhecimento: GPU/CPU...")
         sound=menu.addAction("Desativar voz" if self.settings.speak_answers else "Ativar voz")
         clear=menu.addAction("Limpar histórico local")
         menu.addSeparator()
@@ -285,6 +315,8 @@ class IAExpertWindow(QMainWindow):
             self._choose_voice()
         elif choice == recognition:
             self._choose_recognition()
+        elif choice == gpu:
+            self._choose_gpu()
         elif choice == sound:
             self.settings.speak_answers=not self.settings.speak_answers
             self._restart()

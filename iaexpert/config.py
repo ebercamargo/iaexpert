@@ -28,6 +28,7 @@ class Settings:
     voice_engine: str = "ask"
     voice_name: str = "pt-BR-FranciscaNeural"
     performance_log: bool = True
+    stt_device: str = "auto"
 
     @classmethod
     def load(cls, directory: Path | None = None) -> "Settings":
@@ -43,12 +44,14 @@ class Settings:
             for key in ("model", "ollama_url", "whisper_model", "voice_name"):
                 if key in data and not isinstance(data[key], str):
                     raise ValueError(f"{key} inválido")
-            if data.get("voice_engine", "ask") not in {"ask", "edge", "piper"}:
+            if data.get("voice_engine", "ask") not in {"ask", "edge", "piper", "chatterbox"}:
                 raise ValueError("voice_engine inválido")
             if data.get("voice_name", "pt-BR-FranciscaNeural") not in {
                 "pt-BR-FranciscaNeural", "pt-BR-AntonioNeural",
             }:
                 raise ValueError("voice_name inválido")
+            if data.get("stt_device", "auto") not in {"auto", "cpu", "cuda"}:
+                raise ValueError("stt_device inválido")
             if data.get("whisper_model", "tiny") not in {"tiny", "base", "small"}:
                 raise ValueError("whisper_model inválido")
             for key in ("auto_continue", "speak_answers", "performance_log"):

@@ -31,6 +31,13 @@ class AssistantWorker(QThread):
         self.history = history
         self.stop_event = Event()
 
+    def _prepare_voice(self, tts) -> None:
+        try:
+            tts.preload()
+        except Exception:
+            # A falha será mostrada ao usuário ao tentar sintetizar a resposta.
+            pass
+
     def cancel(self) -> None:
         self.stop_event.set()
         try:
@@ -42,6 +49,8 @@ class AssistantWorker(QThread):
         try:
             stt = SpeechToText(self.settings)
             tts = choose_voice(self.settings)
+            if hasattr(tts, "preload"):
+                Thread(target=self._prepare_voice, args=(tts,), daemon=True).start()
             client = OllamaClient(self.settings)
             microphone = Microphone(
                 self.settings.microphone_threshold,
