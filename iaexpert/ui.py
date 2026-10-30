@@ -413,20 +413,30 @@ class IAExpertWindow(QMainWindow):
         if self.worker is not None:
             if not self.closing:
                 self.closing = True
+                # Para a animação durante a saída, inclusive após Ctrl+C.
+                self.face.timer.stop()
                 self.worker.cancel()
-                # Nunca deixar uma síntese neural travada impedir sair.
+                # Uma chamada a modelo externo pode não respeitar cancelamento.
                 self._exit_timer.start(3000)
             event.ignore()
         else:
             self._exit_timer.stop()
+            self.face.timer.stop()
             if self.tray is not None:
                 self.tray.hide()
             event.accept()
 
 
 def main():
-    app=QApplication([])
+    from .lifecycle import ConsoleShutdown
+
+    app = QApplication([])
     app.setApplicationName("IAExpert")
-    window=IAExpertWindow()
-    window.show()
-    app.exec()
+    window = IAExpertWindow()
+    shutdown = ConsoleShutdown(window.close, app)
+    shutdown.install()
+    try:
+        window.show()
+        app.exec()
+    finally:
+        shutdown.uninstall()
