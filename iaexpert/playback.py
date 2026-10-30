@@ -75,8 +75,13 @@ def play_pcm(
                     0.0,
                     float(time_info.outputBufferDacTime - time_info.currentTime),
                 )
-                due = time.monotonic() + min(delay, 0.5)
-                on_level(mouth_level(chunk), due)
+                base_due = time.monotonic() + min(delay, 0.5)
+                # Quadros de aproximadamente 25 ms: acompanha as sílabas
+                # mesmo quando o driver entrega buffers de 80-100 ms.
+                envelope_frames = max(1, int(rate * 0.025))
+                for offset in range(0, actual, envelope_frames):
+                    window = chunk[offset:offset + envelope_frames]
+                    on_level(mouth_level(window), base_due + offset / rate)
         else:
             outdata.fill(0)
 
