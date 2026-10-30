@@ -167,3 +167,17 @@ Durante uma piscada, apenas a região dos olhos é substituída; a imagem da boc
 - Quando iniciado por `IAExpert.cmd`/`Iniciar-IAExpert.ps1`, o aplicativo observa o processo PowerShell iniciador. Se o terminal for fechado e esse processo morrer, o aplicativo também encerra automaticamente, evitando continuar oculto no gerenciador de tarefas.
 
 Ajustes de temporização e encerramento devem ser validados com o seu driver de som real no Windows. Os testes automatizados simulam o PortAudio e a renderização Qt; não medem a latência física de uma saída Bluetooth/USB.
+
+
+### Ctrl+C no terminal — encerramento sem traceback
+
+A aplicação instala um manipulador próprio para Ctrl+C (SIGINT e SIGBREAK
+quando disponível). Ele não interrompe a função de animação do Qt; apenas
+sinaliza o pedido de saída, processado por um temporizador Qt. O encerramento
+normal cancela a gravação, a síntese e o worker; se uma biblioteca externa
+ignorar o cancelamento, o processo é encerrado após o timeout de segurança.
+
+Ao iniciar pelo IAExpert.cmd, Ctrl+C deve encerrar a interface sem exibir
+"KeyboardInterrupt". Também pode usar Esc com o rosto em foco ou
+"Encerrar IAExpert" na bandeja do Windows. Fechar o terminal iniciador
+continua encerrando o aplicativo.
