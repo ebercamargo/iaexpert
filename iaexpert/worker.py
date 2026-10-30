@@ -6,7 +6,6 @@ from queue import Queue
 from threading import Event, Thread
 import time
 
-import sounddevice as sd
 from PySide6.QtCore import QThread, Signal
 
 from .audio import Microphone, SpeechToText
@@ -20,7 +19,7 @@ from .speech import SentenceBuffer
 
 class AssistantWorker(QThread):
     state_changed = Signal(str)
-    level_changed = Signal(float)
+    level_changed = Signal(float, float)
     question_ready = Signal(str)
     answer_finished = Signal(str)
     failed = Signal(str)
@@ -39,11 +38,9 @@ class AssistantWorker(QThread):
             pass
 
     def cancel(self) -> None:
+        # Sem sd.stop() no thread gráfico: o callback do OutputStream
+        # detecta stop_event e interrompe a reprodução imediatamente.
         self.stop_event.set()
-        try:
-            sd.stop()
-        except Exception:
-            pass
 
     def run(self) -> None:
         try:
@@ -105,10 +102,10 @@ class AssistantWorker(QThread):
                         return
                     try:
                         self.state_changed.emit("Falando...")
-                        def audio_level(level: float) -> None:
+                        def audio_level(level: float, presentation_time: float) -> None:
                             if times["first_audio"] is None and level > 0:
-                                times["first_audio"] = time.monotonic()
-                            self.level_changed.emit(level)
+                                times["first_audio"] = presentation_time
+                            self.level_changed.emit(level, presentation_time)
                         tts.speak(text, self.stop_event, on_level=audio_level)
                     except Exception as exc:
                         if self.settings.voice_engine != "piper" and not self.stop_event.is_set():
@@ -152,10 +149,8 @@ class AssistantWorker(QThread):
                 while speaker.is_alive():
                     speaker.join(timeout=0.15)
                     if self.stop_event.is_set():
-                        try:
-                            sd.stop()
-                        except Exception:
-                            pass
+                        # O callback recebe stop_event e encerra o stream.
+                        pass
 
         if errors:
             raise errors[0]

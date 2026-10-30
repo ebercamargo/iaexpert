@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import math
 import time
+import os
+import sys
+from collections import deque
+from threading import Thread
 from dataclasses import replace
 
 import sounddevice as sd
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QPainter
-from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget
+from PySide6.QtGui import QGuiApplication, QPainter, QIcon
+from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget, QSystemTrayIcon
 
 from .avatar import FacialFrames
 from .config import Settings
@@ -26,7 +30,8 @@ class FaceWidget(QWidget):
         self.frames = FacialFrames(Path(__file__).resolve().parent.parent / "assets")
         self.start_time = time.monotonic()
         self.audio_level = 0.
-        self.level = .05
+        self.level = 0.0
+        self.audio_events = deque(maxlen=200)
         self.mode = "idle"
         self.drag_origin = None
         self.window_origin = None
@@ -43,11 +48,17 @@ class FaceWidget(QWidget):
                      "listening" if "ouvindo" in text else
                      "thinking" if "pensando" in text or "reconhecendo" in text else "idle")
         if self.mode != "speaking":
-            self.audio_level = 0.
+            self.audio_events.clear()
+            self.audio_level = 0.0
+            self.level = 0.0
         self.update()
 
-    def set_audio_level(self, level):
-        self.audio_level = max(0., min(1., float(level)))
+    def set_audio_level(self, level: float, play_time: float):
+        # O timestamp vem diretamente do buffer entregue ao PortAudio.
+        # A fila fica no thread Qt e acompanha a saída efetiva do dispositivo.
+        self.audio_events.append(
+            (float(play_time), max(0.0, min(1.0, float(level))))
+        )
 
     def _blink(self, now):
         if self.blink_start is None and now >= self.next_blink:
@@ -62,8 +73,12 @@ class FaceWidget(QWidget):
         return math.sin(math.pi * phase)**2
 
     def _tick(self):
-        wanted = self.audio_level if self.mode == "speaking" else .05
-        self.level += (wanted-self.level)*.45
+        now = time.monotonic()
+        while self.audio_events and self.audio_events[0][0] <= now:
+            _, self.audio_level = self.audio_events.popleft()
+        wanted = self.audio_level if self.mode == "speaking" else 0.0
+        smoothing = 0.80 if wanted >= self.level else 0.66
+        self.level += (wanted - self.level) * smoothing
         self.update()
 
     def paintEvent(self, event):
@@ -125,6 +140,9 @@ class IAExpertWindow(QMainWindow):
         self.worker=None
         self.closing=False
         self.restart_requested=False
+        self._exit_timer = QTimer(self)
+        self._exit_timer.setSingleShot(True)
+        self._exit_timer.timeout.connect(self._force_exit)
         self.setWindowTitle("IAExpert — Avatar de Voz")
         self.setWindowFlags(Qt.Window|Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground,True)
@@ -138,6 +156,8 @@ class IAExpertWindow(QMainWindow):
         width=round(height*self.face.frames.width/self.face.frames.height)+32
         self.resize(width,height)
         self.move(bounds.right()-width-35,bounds.bottom()-height-20)
+        self._add_tray_icon()
+        self._watch_launcher()
         QTimer.singleShot(350,self._initialize_voice)
 
     def _initialize_voice(self):
@@ -334,12 +354,73 @@ class IAExpertWindow(QMainWindow):
         else:
             super().keyPressEvent(event)
 
+    def _add_tray_icon(self):
+        """Permite encerrar mesmo se o rosto não estiver com o foco."""
+        self.tray = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray = QSystemTrayIcon(QIcon(self.face.frames.frames[0]), self)
+        tray.setToolTip("IAExpert — assistente de voz")
+        menu = QMenu()
+        listen = menu.addAction("Pausar / voltar a ouvir")
+        listen.triggered.connect(self.toggle)
+        quit_action = menu.addAction("Encerrar IAExpert")
+        quit_action.triggered.connect(self.close)
+        tray.setContextMenu(menu)
+        tray.show()
+        self.tray = tray
+        self._tray_menu = menu
+
+    @staticmethod
+    def _watch_parent_process(parent_pid: int):
+        """Quando o PowerShell iniciador morre, evita processo GUI órfão."""
+        try:
+            import ctypes
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            process = kernel32.OpenProcess(0x00100000, False, parent_pid)
+            if not process:
+                return
+            try:
+                result = kernel32.WaitForSingleObject(process, 0xFFFFFFFF)
+                if result == 0:
+                    os._exit(0)
+            finally:
+                kernel32.CloseHandle(process)
+        except Exception:
+            return
+
+    def _watch_launcher(self):
+        launcher = os.environ.get("IAEXPERT_LAUNCHER_PID", "")
+        if sys.platform == "win32" and launcher.isdecimal():
+            Thread(
+                target=self._watch_parent_process,
+                args=(int(launcher),),
+                daemon=True,
+                name="IAExpert-launcher-watch",
+            ).start()
+
+    def _force_exit(self):
+        """Fallback para inferências externas que ignorem cancelamento."""
+        if self.closing:
+            os._exit(0)
+
     def closeEvent(self,event):
         if self.worker is not None:
-            self.closing=True
-            self.worker.cancel()
+            if not self.closing:
+                self.closing = True
+                self.worker.cancel()
+                # Nunca deixar uma síntese neural travada impedir sair.
+                self._exit_timer.start(3000)
             event.ignore()
         else:
+            self._exit_timer.stop()
+            if self.tray is not None:
+                self.tray.hide()
             event.accept()
 
 

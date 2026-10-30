@@ -7,15 +7,13 @@ para síntese de voz, somente após a escolha expressa do usuário na interface.
 from __future__ import annotations
 
 import asyncio
-import time
 from threading import Event
-from collections.abc import Callable
 
 import numpy as np
-import sounddevice as sd
 
 from .config import Settings
 from .audio import VoiceOutput
+from .playback import play_pcm
 from threading import Lock
 import logging
 
@@ -25,35 +23,6 @@ NATURAL_VOICES = {
     "pt-BR-AntonioNeural": "Antônio — masculina",
 }
 
-
-def play_pcm(
-    samples: np.ndarray,
-    rate: int,
-    stop: Event,
-    on_level: Callable[[float], None] | None = None,
-) -> None:
-    """Reproduz PCM com cancelamento e medição de amplitude para o avatar."""
-    if stop.is_set() or samples.size == 0:
-        return
-    sd.play(samples, samplerate=rate, blocking=False)
-    start = time.monotonic()
-    try:
-        while not stop.is_set():
-            stream = sd.get_stream()
-            if stream is None or not stream.active:
-                break
-            if on_level is not None:
-                start_frame = int((time.monotonic() - start) * rate)
-                chunk = samples[start_frame : start_frame + max(256, int(rate * .05))]
-                if chunk.size:
-                    rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
-                    on_level(min(1., max(0., (rms - 160.) / 3100.)))
-            if stop.wait(.035):
-                break
-    finally:
-        if on_level is not None:
-            on_level(0.)
-        sd.stop()
 
 
 class NaturalVoice:

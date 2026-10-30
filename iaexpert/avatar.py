@@ -78,6 +78,23 @@ class FacialFrames:
         self.blinks = [_pixmap(_morph(image, 0.15, value)) for value in (0.30, 0.65, 1.0)]
 
     def frame(self, openness: float, blink: float) -> QPixmap:
-        if blink >= 0.18:
-            return self.blinks[min(2, max(0, round(blink * 2)))]
-        return self.frames[min(12, max(0, round(openness * 12)))]
+        """Piscadas não substituem a posição atual da boca.
+
+        Combina apenas o recorte dos olhos com o quadro de boca já selecionado.
+        """
+        base = self.frames[min(12, max(0, round(openness * 12)))]
+        if blink < 0.18:
+            return base
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QPainter
+
+        overlay = self.blinks[min(2, max(0, round(blink * 2)))]
+        frame = QPixmap(base)
+        painter = QPainter(frame)
+        for ex, ey in EYE_CENTERS:
+            cx, cy = int(self.width * ex), int(self.height * ey)
+            rx, ry = int(self.width * .118), int(self.height * .048)
+            region = QRect(cx - rx, cy - ry, rx * 2, ry * 2)
+            painter.drawPixmap(region, overlay, region)
+        painter.end()
+        return frame

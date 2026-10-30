@@ -31,6 +31,34 @@ class AvatarTests(unittest.TestCase):
             avatar.frames[12].toImage(),
         )
 
+    def test_blink_does_not_replace_mouth_frame(self):
+        asset_dir = Path(__file__).resolve().parents[1] / "assets"
+        avatar = FacialFrames(asset_dir)
+        from PySide6.QtCore import QRect
+        mouth = QRect(
+            int(avatar.width * .43), int(avatar.height * .70),
+            int(avatar.width * .14), int(avatar.height * .06)
+        )
+        normal = avatar.frame(.95, 0).toImage().copy(mouth)
+        blinking = avatar.frame(.95, 1.0).toImage().copy(mouth)
+        self.assertEqual(normal, blinking)
+
+    def test_audio_levels_use_scheduled_dac_timestamp(self):
+        import time
+        from iaexpert.ui import FaceWidget
+
+        widget = FaceWidget()
+        widget.set_state("Falando...")
+        due = time.monotonic() - .01
+        widget.set_audio_level(.8, due)
+        widget._tick()
+        self.assertGreater(widget.level, .4)
+        widget.set_state("Ouvindo...")
+        widget._tick()
+        self.assertEqual(widget.audio_level, 0)
+        widget.timer.stop()
+        widget.close()
+
     def test_window_has_real_transparency(self):
         window = IAExpertWindow()
         try:
