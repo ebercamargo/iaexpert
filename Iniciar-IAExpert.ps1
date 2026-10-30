@@ -72,5 +72,7 @@ if (-not ($availableModels | Select-String -Pattern "^\s*qwen3\.5:2b\s")) {
 }
 
 Write-Host "Abrindo o IAExpert..." -ForegroundColor Green
+# Permite encerrar o avatar automaticamente se o terminal/pai for fechado.
+$env:IAEXPERT_LAUNCHER_PID = [string]$PID
 & $venvPython -m iaexpert
 exit $LASTEXITCODE

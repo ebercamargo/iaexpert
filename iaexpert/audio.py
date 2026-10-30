@@ -200,22 +200,5 @@ class VoiceOutput:
         with wave.open(buffer, "rb") as wav:
             rate = wav.getframerate()
             samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype=np.int16).copy()
-        sd.play(samples, samplerate=rate, blocking=False)
-        origin = time.monotonic()
-        try:
-            while not stop.is_set():
-                stream = sd.get_stream()
-                if stream is None or not stream.active:
-                    break
-                if on_level is not None:
-                    pos = int((time.monotonic() - origin) * rate)
-                    window = samples[pos:pos + max(256, int(rate * 0.045))]
-                    if len(window):
-                        amplitude = float(np.sqrt(np.mean(window.astype(np.float32) ** 2)))
-                        on_level(min(1.0, max(0.0, (amplitude - 240) / 3600)))
-                if stop.wait(0.033):
-                    break
-        finally:
-            if on_level is not None:
-                on_level(0.0)
-            sd.stop()
+        from .playback import play_pcm
+        play_pcm(samples, rate, stop, on_level)

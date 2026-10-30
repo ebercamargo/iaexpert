@@ -147,3 +147,23 @@ Na pasta do projeto, execute:
 ~~~
 
 O script identifica o adaptador gráfico, consulta `nvidia-smi` (quando disponível), verifica CUDA no CTranslate2 e PyTorch, mostra `ollama ps` e apresenta os últimos tempos registrados. A medição é feita sem registrar o texto do usuário. A primeira pergunta pode demorar pelo carregamento do modelo; o aplicativo pré-carrega o Ollama em paralelo à escuta do microfone. O desempenho real só pode ser medido no seu PC.
+
+
+## Sincronização real de voz e encerramento
+
+A boca do IAExpert não depende mais de uma estimativa externa ao áudio.
+**Piper, Francisca/Antônio e Chatterbox** agora usam o mesmo `iaexpert/playback.py`, que envia buffers PCM16 para o PortAudio por meio de `sounddevice.OutputStream`.
+
+O mesmo buffer usado para reprodução calcula o envelope RMS da boca e fornece o instante esperado de apresentação no dispositivo, usando `outputBufferDacTime`. A interface agenda o quadro facial conforme esse timestamp, com atualização de até 60 FPS. O atraso real pode variar com driver, Bluetooth e processamento do Windows. Isso é sincronização pelo áudio, **não análise de fonemas/visemas**: os lábios abrem e fecham com a energia sonora e podem não corresponder exatamente às letras pronunciadas.
+
+Durante uma piscada, apenas a região dos olhos é substituída; a imagem da boca mantém o mesmo quadro de áudio.
+
+### Encerrar com segurança
+
+- **Clique com botão direito no rosto → Sair**, ou pressione **Esc** com o avatar em foco.
+- A aplicação oferece um ícone na bandeja de notificações do Windows com a ação **Encerrar IAExpert**, útil quando o rosto não estiver em foco.
+- O fechamento normal solicita interrupção do áudio e termina a janela assim que o trabalhador finaliza.
+- Se um sintetizador neural estiver travado e ignorar cancelamento, o pedido explícito de saída finaliza o processo após aproximadamente 3 segundos. Isso também interrompe a geração em andamento.
+- Quando iniciado por `IAExpert.cmd`/`Iniciar-IAExpert.ps1`, o aplicativo observa o processo PowerShell iniciador. Se o terminal for fechado e esse processo morrer, o aplicativo também encerra automaticamente, evitando continuar oculto no gerenciador de tarefas.
+
+Ajustes de temporização e encerramento devem ser validados com o seu driver de som real no Windows. Os testes automatizados simulam o PortAudio e a renderização Qt; não medem a latência física de uma saída Bluetooth/USB.
