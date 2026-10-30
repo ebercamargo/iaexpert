@@ -59,6 +59,7 @@ class PlaybackTests(unittest.TestCase):
             np.full(256, -3500, dtype=np.int16),
         ))
         events = []
+        start = time.monotonic()
         with patch("iaexpert.playback.sd.OutputStream", side_effect=FakeOutputStream):
             play_pcm(samples, 16000, Event(), lambda value, when: events.append((value, when)))
         stream = FakeOutputStream.instances[-1]
@@ -71,7 +72,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertGreater(events[2][0], .5)
         self.assertEqual(events[-1][0], 0)
         # Timestamp contém o atraso DAC (60 ms), em vez de usar relógio arbitrário.
-        self.assertGreater(events[0][1], time.monotonic() - .1)
+        self.assertGreater(events[0][1], start + .03)
 
     def test_cancelled_before_output_never_opens_device(self):
         stop = Event()
