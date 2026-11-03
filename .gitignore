@@ -15,3 +15,4 @@ voices/
 *.part
 conversation.json
 settings.json
+/livros/
