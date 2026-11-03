@@ -135,6 +135,7 @@ class InboxTests(unittest.TestCase):
             actual = normal_stat(path, **kwargs)
             if path == text:
                 return SimpleNamespace(
+                    st_mode=actual.st_mode,
                     st_size=75 * 1024 * 1024,
                     st_mtime_ns=actual.st_mtime_ns,
                 )
