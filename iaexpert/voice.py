@@ -21,6 +21,8 @@ import logging
 NATURAL_VOICES = {
     "pt-BR-FranciscaNeural": "Francisca — feminina",
     "pt-BR-AntonioNeural": "Antônio — masculina",
+    "en-US-JennyNeural": "Jenny — English (female)",
+    "en-US-GuyNeural": "Guy — English (male)",
 }
 
 
@@ -75,7 +77,8 @@ class NaturalVoice:
 class ChatterboxVoice:
     """Voz neural multilíngue PT-BR na GPU. Dependência opcional, nunca na CPU."""
 
-    def __init__(self) -> None:
+    def __init__(self, language: str = "pt") -> None:
+        self.language = language
         self._model = None
         self._lock = Lock()
 
@@ -112,7 +115,7 @@ class ChatterboxVoice:
         if stop.is_set():
             return
         with self._lock, torch.inference_mode():
-            wav = model.generate(text[:650].strip(), language_id="pt")
+            wav = model.generate(text[:650].strip(), language_id=self.language)
         if stop.is_set():
             return
         signal = wav.detach().float().cpu().numpy().reshape(-1)
@@ -121,10 +124,11 @@ class ChatterboxVoice:
         play_pcm(pcm, model.sr, stop, on_level)
 
 def choose_voice(settings: Settings):
+    language = "en" if settings.learning_mode == "english_tutor" else "pt"
     if settings.voice_engine == "edge":
         return NaturalVoice(settings.voice_name)
     if settings.voice_engine == "chatterbox":
-        return ChatterboxVoice()
+        return ChatterboxVoice(language=language)
     if settings.voice_engine == "piper":
-        return VoiceOutput()
+        return VoiceOutput(language=language)
     raise ValueError("Escolha o motor de voz antes de iniciar a conversa.")

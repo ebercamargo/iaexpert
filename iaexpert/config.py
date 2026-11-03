@@ -26,9 +26,11 @@ class Settings:
 
     # "ask" evita envio on-line antes da aprovação informada do usuário.
     voice_engine: str = "ask"
-    voice_name: str = "pt-BR-FranciscaNeural"
+    voice_name: str = "en-US-JennyNeural"
     performance_log: bool = True
     stt_device: str = "auto"
+    learning_mode: str = "english_tutor"
+    english_level: str = "A1"
 
     @classmethod
     def load(cls, directory: Path | None = None) -> "Settings":
@@ -44,10 +46,18 @@ class Settings:
             for key in ("model", "ollama_url", "whisper_model", "voice_name"):
                 if key in data and not isinstance(data[key], str):
                     raise ValueError(f"{key} inválido")
+            if data.get("learning_mode", "english_tutor") not in {"english_tutor", "assistant"}:
+                raise ValueError("learning_mode inválido")
+            if data.get("english_level", "A1") not in {"A1", "A2", "B1", "B2", "C1"}:
+                raise ValueError("english_level inválido")
+            # Migração única de configurações de versões anteriores.
+            if "learning_mode" not in raw and data.get("voice_name", "").startswith("pt-BR"):
+                data["voice_name"] = "en-US-JennyNeural"
             if data.get("voice_engine", "ask") not in {"ask", "edge", "piper", "chatterbox"}:
                 raise ValueError("voice_engine inválido")
-            if data.get("voice_name", "pt-BR-FranciscaNeural") not in {
+            if data.get("voice_name", "en-US-JennyNeural") not in {
                 "pt-BR-FranciscaNeural", "pt-BR-AntonioNeural",
+                "en-US-JennyNeural", "en-US-GuyNeural",
             }:
                 raise ValueError("voice_name inválido")
             if data.get("stt_device", "auto") not in {"auto", "cpu", "cuda"}:

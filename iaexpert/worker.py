@@ -15,6 +15,8 @@ from .config import Settings
 from .history import ConversationHistory
 from .ollama_client import Cancelled, OllamaClient
 from .speech import SentenceBuffer
+from .library import BookLibrary
+from .tutor import tutor_prompt, retrieval_needed, quick_lesson_reply
 
 
 class AssistantWorker(QThread):
@@ -89,7 +91,15 @@ class AssistantWorker(QThread):
         self.state_changed.emit("Pensando...")
         requested = time.monotonic()
         times = {"first_token": None, "first_audio": None}
-        buffer = SentenceBuffer()
+        source_material = (
+            BookLibrary().search(question) if self.settings.learning_mode == "english_tutor"
+            and retrieval_needed(question) else []
+        )
+        prompt = (
+            tutor_prompt(self.settings.english_level, source_material)
+            if self.settings.learning_mode == "english_tutor" else None
+        )
+        buffer = SentenceBuffer(max_chars=95 if prompt else 165)
         chunks: Queue[str | None] = Queue()
         errors: list[Exception] = []
         speaker: Thread | None = None
@@ -112,7 +122,7 @@ class AssistantWorker(QThread):
                             try:
                                 from .audio import VoiceOutput
                                 self.state_changed.emit("Voz neural indisponível; usando Piper local...")
-                                VoiceOutput().speak(
+                                VoiceOutput(language="en" if self.settings.learning_mode == "english_tutor" else "pt").speak(
                                     text, self.stop_event, on_level=self.level_changed.emit
                                 )
                                 continue
@@ -133,9 +143,17 @@ class AssistantWorker(QThread):
                     chunks.put(chunk)
 
         try:
-            answer = client.chat(
-                question, self.history.messages, on_delta, self.stop_event.is_set
-            )
+            quick = (quick_lesson_reply(question, self.settings.english_level)
+                     if prompt else None)
+            if quick:
+                on_delta(quick + " ")
+                answer = quick
+            else:
+                answer = client.chat(
+                    question, self.history.messages[-6:] if prompt else self.history.messages,
+                    on_delta, self.stop_event.is_set,
+                    system_prompt=prompt, max_tokens=85 if prompt else None,
+                )
             remaining = buffer.finish()
             if remaining and speaker is not None and not self.stop_event.is_set():
                 chunks.put(remaining)
