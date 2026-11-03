@@ -9,14 +9,18 @@ import hashlib
 import re
 import sqlite3
 import zipfile
+from contextlib import closing
+from threading import Event
 from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from .config import data_directory
 
-MAX_FILE_BYTES = 60 * 1024 * 1024
-MAX_TEXT_CHARS = 5_000_000
+# A leitura dos livros é incremental: não há limite fixo de 60 MB por arquivo.
+# Há limites apenas para entradas individuais de arquivos ZIP (proteção
+# contra descompressão excessiva e documentos maliciosos).
+MAX_ZIP_MEMBER_BYTES = 64 * 1024 * 1024
 SUPPORTED = {".pdf", ".epub", ".txt", ".md", ".docx"}
 STOPWORDS = {
     "a", "an", "and", "as", "at", "be", "can", "do", "for", "from", "how",
@@ -52,88 +56,113 @@ class _TextOnly(HTMLParser):
             self.parts.append(data)
 
 
-def _read_content(path: Path) -> str:
+def _iter_content(path: Path):
+    """Extrai texto aos poucos, sem reter um PDF inteiro na RAM."""
     suffix = path.suffix.lower()
     if suffix not in SUPPORTED:
         raise ValueError("Formato não suportado. Utilize PDF, EPUB, TXT, MD ou DOCX.")
 
     if suffix in {".txt", ".md"}:
-        raw = path.read_bytes()
+        with path.open("rb") as raw:
+            prefix = raw.read(16 * 1024)
         try:
-            return raw.decode("utf-8-sig")
+            prefix.decode("utf-8-sig")
+            encoding = "utf-8-sig"
         except UnicodeDecodeError:
-            return raw.decode("cp1252", errors="replace")
+            encoding = "cp1252"
+        with path.open("r", encoding=encoding, errors="replace") as stream:
+            while piece := stream.read(64 * 1024):
+                yield piece
+        return
 
     if suffix == ".pdf":
         try:
             from pypdf import PdfReader
         except ImportError as exc:
             raise RuntimeError("Biblioteca pypdf ausente. Reexecute IAExpert.cmd.") from exc
-        document = PdfReader(str(path))
+        document = PdfReader(str(path), strict=False)
         if document.is_encrypted:
             raise ValueError("PDF protegido por senha não pode ser importado.")
-        pages = []
-        length = 0
         for page in document.pages:
-            contents = page.get_contents()
-            if contents is not None and len(contents.get_data()) > 20 * 1024 * 1024:
-                raise ValueError("Página PDF muito grande para extração segura.")
             text = page.extract_text() or ""
-            length += len(text)
-            if length > MAX_TEXT_CHARS:
-                raise ValueError("Livro muito grande: limite de 5 milhões de caracteres.")
-            pages.append(text)
-        return "\n".join(pages)
+            if len(text) > 8_000_000:
+                raise ValueError("Página PDF com texto extraído excessivamente grande.")
+            if text.strip():
+                yield text
+        return
 
-    with zipfile.ZipFile(path) as archive:
-        # EPUB e DOCX são ZIPs; nunca extraímos arquivos no disco.
-        contents = []
-        length = 0
-        for info in archive.infolist():
-            name = info.filename.lower()
-            if info.file_size > 8 * 1024 * 1024:
-                continue
-            if suffix == ".docx" and name != "word/document.xml":
-                continue
-            if suffix == ".epub" and not name.endswith((".xhtml", ".html", ".htm")):
-                continue
-            try:
-                raw = archive.read(info)
-                if suffix == ".docx":
-                    root = ET.fromstring(raw)
-                    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-                    text = "\n".join(
-                        "".join(node.text or "" for node in paragraph.iter(ns + "t"))
-                        for paragraph in root.iter(ns + "p")
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                name = info.filename.lower()
+                if suffix == ".docx" and name != "word/document.xml":
+                    continue
+                if suffix == ".epub" and not name.endswith((".xhtml", ".html", ".htm")):
+                    continue
+                if info.file_size > MAX_ZIP_MEMBER_BYTES:
+                    raise ValueError(
+                        "Capítulo ou documento XML muito grande para processamento seguro."
                     )
-                else:
-                    parser = _TextOnly()
-                    parser.feed(raw.decode("utf-8", errors="replace"))
-                    text = "".join(parser.parts)
-            except (ET.ParseError, UnicodeDecodeError, ValueError) as exc:
-                raise ValueError(f"Não foi possível ler o conteúdo de {path.name}.") from exc
-            length += len(text)
-            if length > MAX_TEXT_CHARS:
-                raise ValueError("Livro muito grande: limite de 5 milhões de caracteres.")
-            contents.append(text)
-        return "\n".join(contents)
+                with archive.open(info) as stream:
+                    if suffix == ".docx":
+                        namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+                        # XML iterparse não mantém o documento inteiro em memória.
+                        try:
+                            for _event, node in ET.iterparse(stream, events=("end",)):
+                                if node.tag == namespace + "p":
+                                    text = " ".join(
+                                        part.text or "" for part in node.iter(namespace + "t")
+                                    )
+                                    if text:
+                                        yield text
+                                    node.clear()
+                        except ET.ParseError as exc:
+                            raise ValueError("DOCX contém XML inválido.") from exc
+                    else:
+                        parser = _TextOnly()
+                        while block := stream.read(64 * 1024):
+                            parser.feed(block.decode("utf-8", errors="replace"))
+                            if parser.parts:
+                                yield "".join(parser.parts)
+                                parser.parts.clear()
+                        parser.close()
+                        if parser.parts:
+                            yield "".join(parser.parts)
+    except (zipfile.BadZipFile, RuntimeError) as exc:
+        raise ValueError("Arquivo de livro compactado inválido ou danificado.") from exc
 
 
 def _chunks(text: str, size: int = 760, overlap: int = 110):
-    normalized = re.sub(r"\s+", " ", text).strip()
-    start = 0
-    while start < len(normalized):
-        end = min(len(normalized), start + size)
-        if end < len(normalized):
-            word_boundary = normalized.rfind(" ", start + size // 2, end)
-            if word_boundary != -1:
-                end = word_boundary
-        fragment = normalized[start:end].strip()
-        if len(fragment) >= 25:
-            yield fragment
-        if end >= len(normalized):
-            break
-        start = max(start + 1, end - overlap)
+    """Fragmentação compatível com versões anteriores."""
+    yield from _chunks_from_parts((text,), size=size, overlap=overlap)
+
+
+def _chunks_from_parts(parts, size: int = 760, overlap: int = 110):
+    """Converte textos de páginas/capítulos em trechos indexáveis com overlap."""
+    pending = ""
+    for part in parts:
+        if not part:
+            continue
+        # O maior objeto em RAM é uma página PDF ou um trecho de capítulo.
+        pending += " " + re.sub(r"\s+", " ", part)
+        while len(pending) > size:
+            end = pending.rfind(" ", size // 2, size)
+            if end < 0:
+                end = size
+            fragment = pending[:end].strip()
+            if len(fragment) >= 25:
+                yield fragment
+            pending = pending[max(1, end - overlap):]
+    if len(pending.strip()) >= 25:
+        yield pending.strip()
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _search_query(question: str) -> str:
@@ -169,39 +198,73 @@ class BookLibrary:
         """)
         return db
 
-    def import_book(self, filename: str | Path) -> tuple[str, int]:
+    def has_book(self, path: str | Path) -> bool:
+        """Permite arquivar livros já indexados, sem duplicar trechos."""
+        path = Path(path)
+        if not path.is_file() or not self.db_path.is_file():
+            return False
+        digest = _sha256(path)
+        with closing(self._open()) as db:
+            return db.execute(
+                "SELECT 1 FROM books WHERE sha256=?", (digest,)
+            ).fetchone() is not None
+
+    def import_book(
+        self, filename: str | Path, stop: Event | None = None
+    ) -> tuple[str, int]:
         path = Path(filename)
         if not path.is_file():
             raise FileNotFoundError(str(path))
         if path.suffix.lower() not in SUPPORTED:
             raise ValueError("Formato não suportado. Utilize PDF, EPUB, TXT, MD ou DOCX.")
-        if path.stat().st_size > MAX_FILE_BYTES:
-            raise ValueError("Arquivo maior que o limite de 60 MB.")
-        digest = hashlib.sha256()
-        with path.open("rb") as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(block)
-        with self._open() as db:
-            if db.execute("SELECT id FROM books WHERE sha256=?", (digest.hexdigest(),)).fetchone():
+        initial = path.stat()
+        digest = _sha256(path)
+        with closing(self._open()) as db:
+            if db.execute(
+                "SELECT id FROM books WHERE sha256=?", (digest,)
+            ).fetchone():
                 raise ValueError("Este livro já foi importado.")
-        text = _read_content(path)
-        if len(text) > MAX_TEXT_CHARS:
-            raise ValueError("Livro muito grande para a biblioteca local.")
-        fragments = list(_chunks(text))
-        if not fragments:
-            raise ValueError(
-                "Não encontrei texto pesquisável. Um PDF digitalizado exige OCR."
-            )
-        with self._open() as db:
-            cursor = db.execute(
-                "INSERT INTO books(title,sha256) VALUES (?,?)",
-                (path.stem[:180], digest.hexdigest()),
-            )
-            db.executemany(
-                "INSERT INTO passages(book_id,content) VALUES (?,?)",
-                ((cursor.lastrowid, passage) for passage in fragments),
-            )
-        return path.stem, len(fragments)
+            # Um INSERT e seus trechos são uma única transação:
+            # PDF sem texto ou arquivo parcialmente copiado NÃO é "aprendido".
+            with db:
+                book = db.execute(
+                    "INSERT INTO books(title,sha256) VALUES (?,?)",
+                    (path.stem[:180], digest),
+                )
+                book_id = book.lastrowid
+                batch: list[tuple[int, str]] = []
+                count = 0
+                for fragment in _chunks_from_parts(_iter_content(path)):
+                    if stop is not None and stop.is_set():
+                        raise InterruptedError("Importação cancelada.")
+                    batch.append((book_id, fragment))
+                    count += 1
+                    if len(batch) >= 150:
+                        db.executemany(
+                            "INSERT INTO passages(book_id,content) VALUES (?,?)",
+                            batch
+                        )
+                        batch.clear()
+                if batch:
+                    db.executemany(
+                        "INSERT INTO passages(book_id,content) VALUES (?,?)", batch
+                    )
+                if count == 0:
+                    raise ValueError(
+                        "Não encontrei texto pesquisável. Um PDF digitalizado exige OCR."
+                    )
+                current = path.stat()
+                if (
+                    current.st_size != initial.st_size
+                    or current.st_mtime_ns != initial.st_mtime_ns
+                    or _sha256(path) != digest
+                ):
+                    raise ValueError(
+                        "O arquivo foi alterado durante a importação. Aguarde a cópia terminar."
+                    )
+                if stop is not None and stop.is_set():
+                    raise InterruptedError("Importação cancelada.")
+        return path.stem, count
 
     def list_books(self) -> list[tuple[int, str]]:
         if not self.db_path.is_file():
