@@ -21,6 +21,11 @@ from .config import Settings, data_directory
 SAMPLE_RATE = 16_000
 BLOCK_SIZE = 480  # 30 ms
 VOICE_NAME = "pt_BR-faber-medium"
+VOICE_EN_NAME = "en_US-amy-medium"
+VOICE_EN_BASE_URL = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+    "en/en_US/amy/medium/"
+)
 VOICE_BASE_URL = (
     "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
     "pt/pt_BR/faber/medium/"
@@ -124,7 +129,7 @@ class SpeechToText:
                 )
         try:
             segments, _ = self._model.transcribe(
-                audio, language="pt", beam_size=1,
+                audio, language=None if self.settings.learning_mode == "english_tutor" else "pt", beam_size=1,
                 vad_filter=False, condition_on_previous_text=False,
             )
             return " ".join(part.text.strip() for part in segments).strip()
@@ -138,16 +143,18 @@ class SpeechToText:
             )
             self.device = "cpu"
             segments, _ = self._model.transcribe(
-                audio, language="pt", beam_size=1,
+                audio, language=None if self.settings.learning_mode == "english_tutor" else "pt", beam_size=1,
                 vad_filter=False, condition_on_previous_text=False,
             )
             return " ".join(part.text.strip() for part in segments).strip()
 
 
 class VoiceOutput:
-    def __init__(self, directory: Path | None = None) -> None:
+    def __init__(self, directory: Path | None = None, language: str = "pt") -> None:
         self.directory = (directory or data_directory()) / "voices"
         self._voice = None
+        self.voice_name = VOICE_EN_NAME if language == "en" else VOICE_NAME
+        self.base_url = VOICE_EN_BASE_URL if language == "en" else VOICE_BASE_URL
 
     def _download_file(self, filename: str) -> None:
         destination = self.directory / filename
@@ -156,7 +163,7 @@ class VoiceOutput:
         self.directory.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix(destination.suffix + ".part")
         req = request.Request(
-            VOICE_BASE_URL + filename,
+            self.base_url + filename,
             headers={"User-Agent": "IAExpert/0.1"},
         )
         try:
@@ -176,9 +183,9 @@ class VoiceOutput:
         if self._voice is None:
             from piper import PiperVoice
 
-            self._download_file(VOICE_NAME + ".onnx")
-            self._download_file(VOICE_NAME + ".onnx.json")
-            self._voice = PiperVoice.load(str(self.directory / (VOICE_NAME + ".onnx")))
+            self._download_file(self.voice_name + ".onnx")
+            self._download_file(self.voice_name + ".onnx.json")
+            self._voice = PiperVoice.load(str(self.directory / (self.voice_name + ".onnx")))
         return self._voice
 
     def speak(self, text: str, stop: Event, on_level=None) -> None:

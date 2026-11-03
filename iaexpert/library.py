@@ -66,20 +66,20 @@ def _read_content(path: Path) -> str:
 
     if suffix == ".pdf":
         try:
-            import pymupdf
+            from pypdf import PdfReader
         except ImportError as exc:
-            raise RuntimeError("Biblioteca PyMuPDF ausente. Reexecute IAExpert.cmd.") from exc
-        with pymupdf.open(path) as document:
-            if document.needs_pass:
-                raise ValueError("PDF protegido por senha não pode ser importado.")
-            pages = []
-            length = 0
-            for page in document:
-                text = page.get_text("text", sort=True)
-                length += len(text)
-                if length > MAX_TEXT_CHARS:
-                    raise ValueError("Livro muito grande: limite de 5 milhões de caracteres.")
-                pages.append(text)
+            raise RuntimeError("Biblioteca pypdf ausente. Reexecute IAExpert.cmd.") from exc
+        document = PdfReader(str(path))
+        if document.is_encrypted:
+            raise ValueError("PDF protegido por senha não pode ser importado.")
+        pages = []
+        length = 0
+        for page in document.pages:
+            text = page.extract_text() or ""
+            length += len(text)
+            if length > MAX_TEXT_CHARS:
+                raise ValueError("Livro muito grande: limite de 5 milhões de caracteres.")
+            pages.append(text)
         return "\n".join(pages)
 
     with zipfile.ZipFile(path) as archive:

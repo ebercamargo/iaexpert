@@ -10,15 +10,21 @@ from threading import Thread
 from dataclasses import replace
 
 import sounddevice as sd
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QPainter, QIcon
-from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget, QSystemTrayIcon, QFileDialog
 
 from .avatar import FacialFrames
 from .config import Settings
 from .history import ConversationHistory
 from .worker import AssistantWorker
+from .library import BookLibrary, SUPPORTED
 from pathlib import Path
+
+
+class BookImportEvents(QObject):
+    finished = Signal(str, int)
+    failed = Signal(str)
 
 
 class FaceWidget(QWidget):
@@ -140,6 +146,10 @@ class IAExpertWindow(QMainWindow):
         self.worker=None
         self.closing=False
         self.restart_requested=False
+        self.import_in_progress = False
+        self.book_import_events = BookImportEvents(self)
+        self.book_import_events.finished.connect(self._book_imported)
+        self.book_import_events.failed.connect(self._book_failed)
         self._exit_timer = QTimer(self)
         self._exit_timer.setSingleShot(True)
         self._exit_timer.timeout.connect(self._force_exit)
@@ -165,25 +175,33 @@ class IAExpertWindow(QMainWindow):
             dialog = QMessageBox(self)
             dialog.setWindowTitle("IAExpert — qualidade da voz")
             dialog.setIcon(QMessageBox.Question)
-            dialog.setText("Deseja usar uma voz brasileira mais natural?")
+            dialog.setText(
+                "Deseja usar uma voz neural em inglês?"
+                if self.settings.learning_mode == "english_tutor"
+                else "Deseja usar uma voz brasileira mais natural?"
+            )
             dialog.setInformativeText(
                 "A voz neural online pode soar mais humana e começar mais rápido. "
                 "Para gerar a fala, o texto das respostas será enviado ao serviço "
                 "online de voz da Microsoft. O microfone e o histórico permanecem "
                 "processados localmente. Essa integração pode parar de funcionar "
                 "sem aviso e exige internet.\n\n"
-                "Sim: Francisca Neural (online).\n"
-                "Não: Piper (voz atual, totalmente local)."
+                "Sim: voz neural online em inglês ou português, conforme o modo.\n"
+                "Não: Piper (voz local, sem enviar texto pela internet)."
             )
             dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             dialog.setDefaultButton(QMessageBox.No)
             choice = dialog.exec()
             self.settings.voice_engine = "edge" if choice == QMessageBox.Yes else "piper"
+            if self.settings.learning_mode == "english_tutor":
+                self.settings.voice_name = "en-US-JennyNeural"
             self.settings.save()
         self._start()
 
     def _choose_voice(self):
         options = [
+            ("English — Jenny Neural (online)", "edge", "en-US-JennyNeural"),
+            ("English — Guy Neural (online)", "edge", "en-US-GuyNeural"),
             ("Neural feminina — Francisca (online)", "edge", "pt-BR-FranciscaNeural"),
             ("Neural masculina — Antônio (online)", "edge", "pt-BR-AntonioNeural"),
             ("Piper — voz local, sem internet", "piper", self.settings.voice_name),
@@ -230,6 +248,89 @@ class IAExpertWindow(QMainWindow):
         self.settings.voice_engine = engine
         self.settings.voice_name = name
         self._restart()
+
+    def _choose_learning_mode(self):
+        names = ["Professor de inglês", "Assistente geral"]
+        modes = ["english_tutor", "assistant"]
+        index = modes.index(self.settings.learning_mode)
+        choice, ok = QInputDialog.getItem(
+            self, "IAExpert", "Modo de funcionamento:", names, index, False
+        )
+        if ok:
+            self.settings.learning_mode = modes[names.index(choice)]
+            self._restart()
+
+    def _choose_english_level(self):
+        options = ["A1 — iniciante", "A2 — básico", "B1 — intermediário",
+                   "B2 — intermediário avançado", "C1 — avançado"]
+        keys = ["A1", "A2", "B1", "B2", "C1"]
+        current = keys.index(self.settings.english_level)
+        choice, ok = QInputDialog.getItem(
+            self, "Professor de inglês", "Seu nível atual:", options, current, False
+        )
+        if ok:
+            self.settings.english_level = keys[options.index(choice)]
+            self._restart()
+
+    def _import_book(self):
+        if self.import_in_progress:
+            QMessageBox.information(self, "Biblioteca", "Já estou lendo um livro.")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Adicionar livro para estudar inglês", "",
+            "Livros (PDF EPUB TXT MD DOCX);;Todos os arquivos (*)"
+        )
+        if not path:
+            return
+        self.import_in_progress = True
+        self.face.setToolTip("Importando livro em segundo plano...")
+
+        def task():
+            try:
+                title, count = BookLibrary().import_book(path)
+                self.book_import_events.finished.emit(title, count)
+            except Exception as exc:
+                self.book_import_events.failed.emit(str(exc))
+        Thread(target=task, name="IAExpert-book-import", daemon=True).start()
+
+    def _book_imported(self, title: str, count: int):
+        self.import_in_progress = False
+        self.face.setToolTip("Clique: pausar/escutar | Arrastar: mover | Botão direito: opções")
+        QMessageBox.information(
+            self, "Livro disponível",
+            f"{title} foi indexado em {count} trechos.\n"
+            "Agora você pode pedir explicações sobre o conteúdo do livro."
+        )
+
+    def _book_failed(self, reason: str):
+        self.import_in_progress = False
+        self.face.setToolTip("Clique: pausar/escutar | Arrastar: mover | Botão direito: opções")
+        QMessageBox.warning(self, "Erro ao importar livro", reason)
+
+    def _manage_books(self):
+        books = BookLibrary().list_books()
+        if not books:
+            QMessageBox.information(
+                self, "Biblioteca", "Nenhum livro foi importado ainda."
+            )
+            return
+        labels = [title for _, title in books]
+        choice, ok = QInputDialog.getItem(
+            self, "Livros disponíveis", "Selecione um livro para excluir, "
+            "ou clique Cancelar para conservar:", labels, 0, False
+        )
+        if ok:
+            selected_id = books[labels.index(choice)][0]
+            confirm = QMessageBox.question(
+                self, "Excluir livro",
+                f"Remover os trechos indexados de {choice} da biblioteca?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if confirm == QMessageBox.Yes:
+                BookLibrary().remove_book(selected_id)
+                QMessageBox.information(
+                    self, "Biblioteca", "Livro removido do índice local."
+                )
 
     def _choose_gpu(self):
         names = ["Automático (GPU NVIDIA se disponível)", "Somente CPU", "Forçar CUDA"]
@@ -313,6 +414,10 @@ class IAExpertWindow(QMainWindow):
         toggle=menu.addAction("Pausar" if self.worker else "Ouvir novamente")
         mic=menu.addAction("Selecionar microfone...")
         model=menu.addAction("Modelo de IA...")
+        mode=menu.addAction("Modo: professor de inglês / geral...")
+        level=menu.addAction("Nível de inglês (A1 a C1)...")
+        add_book=menu.addAction("Biblioteca: importar livro...")
+        manage_books=menu.addAction("Biblioteca: livros importados...")
         neural=menu.addAction("Voz e naturalidade...")
         recognition=menu.addAction("Reconhecimento: velocidade...")
         gpu=menu.addAction("Reconhecimento: GPU/CPU...")
@@ -331,6 +436,14 @@ class IAExpertWindow(QMainWindow):
             if ok and value.strip():
                 self.settings.model=value.strip()
                 self._restart()
+        elif choice == mode:
+            self._choose_learning_mode()
+        elif choice == level:
+            self._choose_english_level()
+        elif choice == add_book:
+            self._import_book()
+        elif choice == manage_books:
+            self._manage_books()
         elif choice == neural:
             self._choose_voice()
         elif choice == recognition:

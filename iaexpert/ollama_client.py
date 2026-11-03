@@ -55,10 +55,12 @@ class OllamaClient:
         history: Sequence[dict[str, str]],
         on_delta: Callable[[str], None],
         cancelled: Callable[[], bool] = lambda: False,
+        system_prompt: str | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         if cancelled():
             raise Cancelled()
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
         messages.extend(history[-8:])
         messages.append({"role": "user", "content": text})
         payload = json.dumps(
@@ -68,7 +70,7 @@ class OllamaClient:
                 "stream": True,
                 "think": False,
                 "keep_alive": "30m",
-                "options": {"temperature": 0.45, "num_ctx": 1536, "num_predict": 104},
+                "options": {"temperature": 0.45, "num_ctx": 2048, "num_predict": max_tokens or 104},
             }
         ).encode("utf-8")
         req = request.Request(
