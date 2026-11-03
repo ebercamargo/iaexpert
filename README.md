@@ -198,13 +198,13 @@ Exemplos de perguntas faladas:
 
 ### Importar livros de inglês
 
-Clique com o botão direito no rosto e selecione **Biblioteca: importar livro...**. O IAExpert aceita **PDF, EPUB, TXT, MD e DOCX**, com tamanho máximo de 60 MB. A extração/indexação é feita em uma thread separada, sem travar a interface. Livros são indexados em trechos e armazenados em **`%LOCALAPPDATA%\IAExpert\books.sqlite3`** usando SQLite FTS5. Quando a conversa se refere a livros ou conteúdos de gramática, a aplicação recupera no máximo dois trechos relevantes para a resposta.
+Clique com o botão direito no rosto e selecione **Biblioteca: importar livro...**. O IAExpert aceita **PDF, EPUB, TXT, MD e DOCX**, sem limite fixo de 60 MB por arquivo. A extração/indexação é incremental e feita em uma thread separada, sem travar a interface. Livros são indexados em trechos e armazenados em **`%LOCALAPPDATA%\IAExpert\books.sqlite3`** usando SQLite FTS5. Quando a conversa se refere a livros ou conteúdos de gramática, a aplicação recupera no máximo dois trechos relevantes para a resposta.
 
 - **Não é treinamento de pesos do modelo.** O IAExpert aprende a consultar o conteúdo de referência, sem precisar reler o livro a cada pergunta. A pesquisa é local, mesmo quando a voz é gerada online.
 - Os livros **não são transmitidos** a serviços externos pela importação. Se você configurar um Ollama remoto, os trechos recuperados **poderão ser enviados ao servidor remoto** junto com a pergunta. A voz Edge online recebe somente o texto final que será falado.
 - Um PDF escaneado sem camada de texto **não é compatível** até implementarmos OCR. Não há acesso automático a livros na internet; você precisa importar arquivos que tenha direito de usar.
 - O menu **Biblioteca: livros importados...** permite ver títulos e remover livros do índice. Apagar um livro remove seus trechos do banco de dados.
-- Por motivos de qualidade e proteção de memória, há limites de 5 milhões de caracteres por livro. Indexação inicial pode levar tempo; depois, cada busca usa um índice criado previamente.
+- PDFs maiores podem demorar para indexar, mas não há mais um corte automático em 60 MB. PDF digitalizado sem texto pesquisável continua precisando de OCR; arquivos ZIP com conteúdo descompactado excessivo são recusados por segurança.
 
 ### Voz em inglês
 
@@ -225,3 +225,39 @@ git pull origin main
 ~~~
 
 O inicializador instala automaticamente `pypdf` na atualização. Mantenha o Ollama aberto. A indexação de livros e inferência são gratuitas e executadas localmente por padrão.
+
+
+## Colocar livros em uma pasta e mover automaticamente para "aprendido"
+
+Após iniciar o IAExpert atualizado, ele cria estas pastas **dentro do projeto**:
+
+~~~text
+iaexpert/
+  livros/                  <- coloque seus livros aqui
+    aprendido/             <- livros indexados são movidos para cá
+    importacao.log         <- criado somente quando houver erro
+~~~
+
+No Windows, para quem clonou o repositório em `C:\Users\pc02\Documents\iaexpert`, a pasta de entrada é:
+
+`C:\Users\pc02\Documents\iaexpert\livros`
+
+Não precisa clicar em "importar": **arraste ou copie os livros PDF, EPUB, TXT, MD ou DOCX para `livros`**. Enquanto estiver aberto, o IAExpert verifica a pasta periodicamente, aguarda o arquivo terminar de copiar, extrai e indexa o texto no SQLite local e **somente depois** move o arquivo original para `livros\aprendido`. O histórico pesquisável é salvo em `%LOCALAPPDATA%\IAExpert\books.sqlite3`.
+
+- Clique com o botão direito no rosto, depois em **Livros: abrir pasta para adicionar...** ou **Livros: abrir pasta aprendido...**. Os mesmos atalhos ficam na bandeja do Windows.
+- A rotina trabalha em segundo plano e não bloqueia o microfone ou a interface. Um aviso na bandeja informa quando um livro terminou de indexar.
+- Se um livro falhar, ele **permanece na pasta original** e o motivo fica em `livros\importacao.log`. Corrija ou substitua o arquivo para tentar novamente. Um PDF formado só por imagens requer OCR, que ainda não está incluído.
+- O sistema reconhece livros já indexados, sem repetir a indexação. Se um nome já existir em `aprendido`, ele acrescenta um sufixo numérico para **não sobrescrever** o arquivo existente.
+- A alteração remove o antigo limite de 60 MB. PDFs são processados página a página; arquivos TXT e MD são lidos em blocos. Ainda existem controles para evitar entradas ZIP maliciosas e páginas PDF excessivamente grandes.
+- Os livros e seus conteúdos **não entram no Git** (`livros/` está no `.gitignore`). Não é necessário copiá-los para outra pasta depois da atualização.
+
+**"Aprendido" significa que o material foi extraído e indexado para consulta, não que os pesos da IA foram treinados.** O modo professor de inglês usa os trechos recuperados ao responder perguntas relacionadas a esses materiais. Livros com direitos autorais devem ser materiais obtidos legalmente.
+
+Para atualizar:
+
+~~~powershell
+cd C:\Users\pc02\Documents\iaexpert
+git checkout main
+git pull origin main
+.\IAExpert.cmd
+~~~

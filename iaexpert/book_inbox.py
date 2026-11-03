@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Event
+import time
 
 from .library import BookLibrary, SUPPORTED
 
@@ -66,7 +67,9 @@ class BookInbox:
         except OSError:
             logging.exception("Não foi possível gravar falha de importação.")
 
-    def scan_once(self, stop: Event | None = None) -> list[InboxResult]:
+    def scan_once(
+        self, stop: Event | None = None, on_progress=None
+    ) -> list[InboxResult]:
         """Um arquivo precisa aparecer estável em duas varreduras consecutivas."""
         self.prepare()
         results: list[InboxResult] = []
@@ -90,8 +93,13 @@ class BookInbox:
                 continue
             if self._failed.get(file.name) == signature:
                 continue
+            # Evita importar um livro enquanto o Explorador ainda está copiando.
+            if time.time_ns() - stat.st_mtime_ns < 4_000_000_000:
+                continue
 
             importing = True
+            if on_progress is not None:
+                on_progress(InboxResult(file.name, "processando"))
             try:
                 try:
                     title, count = self.library.import_book(file, stop=stop)
@@ -145,7 +153,7 @@ class BookInbox:
         """Observação leve: deixa microfone e GUI livres em outra thread."""
         while not stop.is_set():
             try:
-                for result in self.scan_once(stop):
+                for result in self.scan_once(stop, on_progress=on_result):
                     on_result(result)
             except Exception:
                 logging.exception("Falha ao verificar pasta de livros.")

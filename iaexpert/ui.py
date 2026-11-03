@@ -6,12 +6,12 @@ import time
 import os
 import sys
 from collections import deque
-from threading import Thread
+from threading import Thread, Event
 from dataclasses import replace
 
 import sounddevice as sd
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal, QObject
-from PySide6.QtGui import QGuiApplication, QPainter, QIcon
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal, QObject, QUrl
+from PySide6.QtGui import QGuiApplication, QPainter, QIcon, QDesktopServices
 from PySide6.QtWidgets import QApplication, QInputDialog, QMainWindow, QMenu, QMessageBox, QWidget, QSystemTrayIcon, QFileDialog
 
 from .avatar import FacialFrames
@@ -19,12 +19,14 @@ from .config import Settings
 from .history import ConversationHistory
 from .worker import AssistantWorker
 from .library import BookLibrary, SUPPORTED
+from .book_inbox import BookInbox, InboxResult
 from pathlib import Path
 
 
 class BookImportEvents(QObject):
     finished = Signal(str, int)
     failed = Signal(str)
+    progress = Signal(str)
 
 
 class FaceWidget(QWidget):
@@ -150,6 +152,9 @@ class IAExpertWindow(QMainWindow):
         self.book_import_events = BookImportEvents(self)
         self.book_import_events.finished.connect(self._book_imported)
         self.book_import_events.failed.connect(self._book_failed)
+        self.book_import_events.progress.connect(self._book_processing)
+        self.book_inbox = BookInbox()
+        self._books_stop = Event()
         self._exit_timer = QTimer(self)
         self._exit_timer.setSingleShot(True)
         self._exit_timer.timeout.connect(self._force_exit)
@@ -168,6 +173,13 @@ class IAExpertWindow(QMainWindow):
         self.move(bounds.right()-width-35,bounds.bottom()-height-20)
         self._add_tray_icon()
         self._watch_launcher()
+        self._books_thread = Thread(
+            target=self.book_inbox.run,
+            args=(self._books_stop, self._background_book_event),
+            daemon=True,
+            name="IAExpert-books-folder",
+        )
+        self._books_thread.start()
         QTimer.singleShot(350,self._initialize_voice)
 
     def _initialize_voice(self):
@@ -272,40 +284,58 @@ class IAExpertWindow(QMainWindow):
             self.settings.english_level = keys[options.index(choice)]
             self._restart()
 
-    def _import_book(self):
-        if self.import_in_progress:
-            QMessageBox.information(self, "Biblioteca", "Já estou lendo um livro.")
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Adicionar livro para estudar inglês", "",
-            "Livros (PDF EPUB TXT MD DOCX);;Todos os arquivos (*)"
-        )
-        if not path:
-            return
-        self.import_in_progress = True
-        self.face.setToolTip("Importando livro em segundo plano...")
+    def _background_book_event(self, event: InboxResult):
+        """Somente sinais Qt saem do scanner; widgets ficam no thread principal."""
+        if event.status == "processando":
+            self.book_import_events.progress.emit(event.filename)
+        elif event.status == "aprendido":
+            self.book_import_events.finished.emit(event.filename, event.passages)
+        elif event.status == "erro":
+            self.book_import_events.failed.emit(f"{event.filename}: {event.detail}")
 
-        def task():
-            try:
-                title, count = BookLibrary().import_book(path)
-                self.book_import_events.finished.emit(title, count)
-            except Exception as exc:
-                self.book_import_events.failed.emit(str(exc))
-        Thread(target=task, name="IAExpert-book-import", daemon=True).start()
+    def _open_books_folder(self, learned: bool = False):
+        self.book_inbox.prepare()
+        folder = self.book_inbox.learned if learned else self.book_inbox.directory
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+            QMessageBox.information(
+                self, "Pasta de livros", f"Abra esta pasta no Explorador:\n{folder}"
+            )
+
+    def _import_book(self):
+        # Compatibilidade com a ação antiga: agora basta colocar o arquivo
+        # na pasta; o scanner o indexa e move automaticamente para aprendido.
+        self._open_books_folder()
+
+    def _book_processing(self, filename: str):
+        self.face.setToolTip(f"Indexando livro: {filename}")
+        if self.tray is not None:
+            self.tray.setToolTip(f"IAExpert — indexando {filename[:50]}")
 
     def _book_imported(self, title: str, count: int):
-        self.import_in_progress = False
-        self.face.setToolTip("Clique: pausar/escutar | Arrastar: mover | Botão direito: opções")
-        QMessageBox.information(
-            self, "Livro disponível",
-            f"{title} foi indexado em {count} trechos.\n"
-            "Agora você pode pedir explicações sobre o conteúdo do livro."
+        self.face.setToolTip(
+            "Clique: pausar/escutar | Arrastar: mover | Botão direito: opções"
         )
+        if self.tray is not None:
+            self.tray.setToolTip("IAExpert — assistente de voz")
+            summary = ("já estava indexado" if count == 0 else
+                       f"indexado em {count} trechos")
+            self.tray.showMessage(
+                "Livro aprendido",
+                f"{title} {summary} e foi movido para livros/aprendido.",
+                QSystemTrayIcon.Information, 4500
+            )
 
     def _book_failed(self, reason: str):
-        self.import_in_progress = False
-        self.face.setToolTip("Clique: pausar/escutar | Arrastar: mover | Botão direito: opções")
-        QMessageBox.warning(self, "Erro ao importar livro", reason)
+        self.face.setToolTip(
+            "Falha ao indexar livro. Consulte livros/importacao.log."
+        )
+        if self.tray is not None:
+            self.tray.setToolTip("IAExpert — erro ao importar livro")
+            self.tray.showMessage(
+                "Livro não importado",
+                reason[:220] + "\nO arquivo continua na pasta livros.",
+                QSystemTrayIcon.Warning, 6000
+            )
 
     def _manage_books(self):
         books = BookLibrary().list_books()
@@ -416,7 +446,8 @@ class IAExpertWindow(QMainWindow):
         model=menu.addAction("Modelo de IA...")
         mode=menu.addAction("Modo: professor de inglês / geral...")
         level=menu.addAction("Nível de inglês (A1 a C1)...")
-        add_book=menu.addAction("Biblioteca: importar livro...")
+        add_book=menu.addAction("Livros: abrir pasta para adicionar...")
+        learned_books=menu.addAction("Livros: abrir pasta aprendido...")
         manage_books=menu.addAction("Biblioteca: livros importados...")
         neural=menu.addAction("Voz e naturalidade...")
         recognition=menu.addAction("Reconhecimento: velocidade...")
@@ -441,7 +472,9 @@ class IAExpertWindow(QMainWindow):
         elif choice == level:
             self._choose_english_level()
         elif choice == add_book:
-            self._import_book()
+            self._open_books_folder()
+        elif choice == learned_books:
+            self._open_books_folder(learned=True)
         elif choice == manage_books:
             self._manage_books()
         elif choice == neural:
@@ -477,6 +510,10 @@ class IAExpertWindow(QMainWindow):
         menu = QMenu()
         listen = menu.addAction("Pausar / voltar a ouvir")
         listen.triggered.connect(self.toggle)
+        inbox_action = menu.addAction("Adicionar livros (abrir pasta)")
+        inbox_action.triggered.connect(lambda: self._open_books_folder())
+        learned_action = menu.addAction("Livros aprendidos (abrir pasta)")
+        learned_action.triggered.connect(lambda: self._open_books_folder(True))
         quit_action = menu.addAction("Encerrar IAExpert")
         quit_action.triggered.connect(self.close)
         tray.setContextMenu(menu)
@@ -523,6 +560,7 @@ class IAExpertWindow(QMainWindow):
             os._exit(0)
 
     def closeEvent(self,event):
+        self._books_stop.set()
         if self.worker is not None:
             if not self.closing:
                 self.closing = True
