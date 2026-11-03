@@ -75,6 +75,9 @@ def _read_content(path: Path) -> str:
         pages = []
         length = 0
         for page in document.pages:
+            contents = page.get_contents()
+            if contents is not None and len(contents.get_data()) > 20 * 1024 * 1024:
+                raise ValueError("Página PDF muito grande para extração segura.")
             text = page.extract_text() or ""
             length += len(text)
             if length > MAX_TEXT_CHARS:

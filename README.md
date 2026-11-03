@@ -1,6 +1,6 @@
 # IAExpert — assistente de voz local
 
-O IAExpert é um assistente conversacional para Windows: você fala em português, a IA responde falando. Oferece Piper totalmente local e vozes neurais brasileiras opcionais que requerem conexão e autorização. A interface é **somente o rosto, flutuando sobre os programas abertos no computador**: sem chat, caixas de digitação, bordas ou fundo artificial. O restante da janela é realmente transparente. A boca abre/fecha em função do áudio que está saindo do alto-falante, o rosto se inclina suavemente e os olhos piscam.
+O IAExpert agora inicia como **professor particular de inglês por voz** para brasileiros. Ele corrige frases, propõe exercícios, aceita dúvidas em português e pode consultar livros enviados por você. O modo de assistente geral continua disponível no menu do avatar. Oferece Piper totalmente local e vozes neurais brasileiras opcionais que requerem conexão e autorização. A interface é **somente o rosto, flutuando sobre os programas abertos no computador**: sem chat, caixas de digitação, bordas ou fundo artificial. O restante da janela é realmente transparente. A boca abre/fecha em função do áudio que está saindo do alto-falante, o rosto se inclina suavemente e os olhos piscam.
 
 ## Instalar ou atualizar (Windows 10/11)
 
@@ -181,3 +181,47 @@ Ao iniciar pelo IAExpert.cmd, Ctrl+C deve encerrar a interface sem exibir
 "KeyboardInterrupt". Também pode usar Esc com o rosto em foco ou
 "Encerrar IAExpert" na bandeja do Windows. Fechar o terminal iniciador
 continua encerrando o aplicativo.
+
+
+---
+
+## Professor de inglês com biblioteca de livros (modo inicial)
+
+**O modo padrão é Professor de inglês, nível A1.** Basta abrir a aplicação e conversar. O professor deve fazer uma pergunta por vez, corrigir pequenos erros com delicadeza e oferecer exercícios curtos. Para trocar de nível A1, A2, B1, B2 ou C1, clique **com o botão direito no rosto → Nível de inglês (A1 a C1)**. No mesmo menu, é possível voltar para **Assistente geral**.
+
+Exemplos de perguntas faladas:
+
+- "Hello!" ou "Let's practice English." — inicia uma conversa curta. Saudações e início de aula comuns usam respostas pedagógicas locais pré-programadas sem aguardar o modelo de linguagem.
+- "I am beginner. Can you help me?" — o professor pode corrigir e responder adaptando o vocabulário.
+- "Explique present perfect em português." — pode responder em português se você pedir.
+- "Explain the past tense from my grammar book." — pesquisa primeiro os trechos relevantes da biblioteca local e usa o material para construir a resposta.
+
+### Importar livros de inglês
+
+Clique com o botão direito no rosto e selecione **Biblioteca: importar livro...**. O IAExpert aceita **PDF, EPUB, TXT, MD e DOCX**, com tamanho máximo de 60 MB. A extração/indexação é feita em uma thread separada, sem travar a interface. Livros são indexados em trechos e armazenados em **`%LOCALAPPDATA%\IAExpert\books.sqlite3`** usando SQLite FTS5. Quando a conversa se refere a livros ou conteúdos de gramática, a aplicação recupera no máximo dois trechos relevantes para a resposta.
+
+- **Não é treinamento de pesos do modelo.** O IAExpert aprende a consultar o conteúdo de referência, sem precisar reler o livro a cada pergunta. A pesquisa é local, mesmo quando a voz é gerada online.
+- Os livros **não são transmitidos** a serviços externos pela importação. Se você configurar um Ollama remoto, os trechos recuperados **poderão ser enviados ao servidor remoto** junto com a pergunta. A voz Edge online recebe somente o texto final que será falado.
+- Um PDF escaneado sem camada de texto **não é compatível** até implementarmos OCR. Não há acesso automático a livros na internet; você precisa importar arquivos que tenha direito de usar.
+- O menu **Biblioteca: livros importados...** permite ver títulos e remover livros do índice. Apagar um livro remove seus trechos do banco de dados.
+- Por motivos de qualidade e proteção de memória, há limites de 5 milhões de caracteres por livro. Indexação inicial pode levar tempo; depois, cada busca usa um índice criado previamente.
+
+### Voz em inglês
+
+Por padrão, uma nova instalação seleciona a voz online inglesa **Jenny Neural** se o usuário autorizar a integração, ou a voz local **Piper Amy em inglês** em modo offline. Existem também Guy (inglês masculino), Francisca/Antônio (português) e Chatterbox multilíngue com GPU NVIDIA, disponíveis pelo menu **Voz e naturalidade...**. A escolha online envia **somente o texto da resposta falada** ao serviço de TTS para gerar áudio.
+
+### Respostas rápidas, não instantâneas
+
+O modelo Ollama é pré-carregado e as respostas de aula são limitadas a aproximadamente duas frases e 85 tokens. A síntese de fala começa assim que os primeiros trechos ficam prontos. Saudações comuns evitam inferência de IA. Na primeira pergunta, o carregamento dos modelos de voz e reconhecimento pode atrasar; em uso contínuo, a GPU e um modelo menor ajudam. **Não há garantia de zero latência**: além do processamento local, a voz neural online depende de rede. Para diagnosticar os tempos execute `Diagnosticar-GPU.ps1` ou leia `%LOCALAPPDATA%\IAExpert\performance.log`.
+
+O reconhecimento usa detecção automática de idioma nas aulas para aceitar inglês e português. O modelo Whisper `tiny` é mais rápido, mas pode reconhecer palavras erroneamente; altere para `base` no menu para melhorar precisão se necessário.
+
+### Como atualizar no Windows
+
+~~~powershell
+git checkout main
+git pull origin main
+.\IAExpert.cmd
+~~~
+
+O inicializador instala automaticamente `pypdf` na atualização. Mantenha o Ollama aberto. A indexação de livros e inferência são gratuitas e executadas localmente por padrão.

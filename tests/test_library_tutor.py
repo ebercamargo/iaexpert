@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from iaexpert.library import BookLibrary
-from iaexpert.tutor import retrieval_needed, tutor_prompt
+from iaexpert.tutor import retrieval_needed, tutor_prompt, quick_lesson_reply
 
 
 class BookLibraryTests(unittest.TestCase):
@@ -64,10 +64,19 @@ class TutorPromptTests(unittest.TestCase):
         self.assertIn("Grammar 101", prompt)
         self.assertIn("untrusted source text", prompt)
 
+    def test_fixed_greetings_skip_model_wait(self):
+        self.assertEqual(
+            quick_lesson_reply("Hello!", "A1"),
+            "Hello! I'm your English teacher. How are you today?"
+        )
+        self.assertIn("name", quick_lesson_reply("Vamos começar a aula", "A1"))
+        self.assertIsNone(quick_lesson_reply("Explain past perfect", "A1"))
+
     def test_only_retrieve_for_material_specific_request(self):
         self.assertFalse(retrieval_needed("Hello, how are you?"))
         self.assertTrue(retrieval_needed("Read the book about grammar"))
         self.assertTrue(retrieval_needed("Explique o capítulo do livro"))
+        self.assertTrue(retrieval_needed("Teach me the past tense"))
 
 
 if __name__ == "__main__":

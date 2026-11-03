@@ -16,7 +16,7 @@ from .history import ConversationHistory
 from .ollama_client import Cancelled, OllamaClient
 from .speech import SentenceBuffer
 from .library import BookLibrary
-from .tutor import tutor_prompt, retrieval_needed
+from .tutor import tutor_prompt, retrieval_needed, quick_lesson_reply
 
 
 class AssistantWorker(QThread):
@@ -143,11 +143,17 @@ class AssistantWorker(QThread):
                     chunks.put(chunk)
 
         try:
-            answer = client.chat(
-                question, self.history.messages[-6:] if prompt else self.history.messages,
-                on_delta, self.stop_event.is_set,
-                system_prompt=prompt, max_tokens=85 if prompt else None,
-            )
+            quick = (quick_lesson_reply(question, self.settings.english_level)
+                     if prompt else None)
+            if quick:
+                on_delta(quick + " ")
+                answer = quick
+            else:
+                answer = client.chat(
+                    question, self.history.messages[-6:] if prompt else self.history.messages,
+                    on_delta, self.stop_event.is_set,
+                    system_prompt=prompt, max_tokens=85 if prompt else None,
+                )
             remaining = buffer.finish()
             if remaining and speaker is not None and not self.stop_event.is_set():
                 chunks.put(remaining)

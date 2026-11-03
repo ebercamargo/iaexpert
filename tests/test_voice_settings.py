@@ -21,7 +21,7 @@ class VoiceSettingsTests(unittest.TestCase):
     def test_online_voice_can_be_explicitly_enabled(self):
         voice = choose_voice(Settings(voice_engine="edge"))
         self.assertIsInstance(voice, NaturalVoice)
-        self.assertEqual(voice.voice_name, "pt-BR-FranciscaNeural")
+        self.assertEqual(voice.voice_name, "en-US-JennyNeural")
 
     def test_preferences_persist(self):
         with tempfile.TemporaryDirectory() as root:

@@ -48,5 +48,25 @@ def retrieval_needed(question: str) -> bool:
     return any(word in s for word in (
         "book", "livro", "text", "texto", "chapter", "capítulo",
         "leitura", "reading", "material", "apostila", "according",
+        "grammar", "gramática", "verb", "verbo", "tense", "tempo verbal",
+        "vocabulary", "vocabulário", "past", "perfect", "present",
         "conforme", "lesson from", "exercício do livro", "exercise from",
     ))
+
+
+def quick_lesson_reply(question: str, level: str) -> str | None:
+    """Respostas pedagógicas fixas: não aguarda LLM para iniciar uma aula."""
+    normalized = " ".join(question.casefold().strip("!?. ,").split())
+    greetings = {"hi", "hello", "oi", "olá", "good morning", "good evening"}
+    starts = {
+        "start english", "start english lesson", "start the lesson",
+        "vamos começar", "vamos começar a aula", "começar aula de inglês",
+        "start a lesson", "practice english", "let's practice english",
+    }
+    if normalized in greetings:
+        return "Hello! I'm your English teacher. How are you today?"
+    if normalized in starts:
+        if level in {"A1", "A2"}:
+            return "Let's start with introductions. What's your name?"
+        return "Let's practice speaking. What did you do yesterday?"
+    return None
